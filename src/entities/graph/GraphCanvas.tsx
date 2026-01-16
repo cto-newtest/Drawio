@@ -89,6 +89,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
 
   const graphRef = useRef<Graph | null>(null)
   const isApplyingStoreRef = useRef(false)
+  const isDraggingRef = useRef(false)
 
   const { diagram, selectedTool } = useGraphStore()
 
@@ -123,6 +124,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     // Add node/text on click
     graph.addListener(InternalEvent.CLICK, (_sender, evt) => {
       if (isApplyingStoreRef.current) return
+      if (isDraggingRef.current) return
 
       const cell = evt.getProperty('cell') as Cell | null
       if (cell) return
@@ -223,6 +225,18 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
           y: geo.y + geo.height / 2,
         })
       }
+    })
+
+    // Track drag start to prevent duplicate node creation
+    graph.addListener(InternalEvent.MOVE_START, () => {
+      isDraggingRef.current = true
+    })
+
+    // Track drag end to allow node creation again
+    graph.addListener(InternalEvent.MOVE_END, () => {
+      setTimeout(() => {
+        isDraggingRef.current = false
+      }, 0)
     })
 
     // Sync resized cells -> store
