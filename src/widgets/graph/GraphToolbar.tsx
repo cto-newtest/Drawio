@@ -21,6 +21,8 @@ import {
   FolderOpen,
   Download,
   Upload,
+  Undo,
+  Redo,
 } from 'lucide-react'
 
 interface GraphToolbarProps {
@@ -62,6 +64,10 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({ className }) => {
     clearDiagram,
     exportDiagram,
     loadDiagram,
+    copyCells,
+    diagram,
+    undo,
+    redo,
   } = useGraphStore()
 
   const handleToolClick = (toolId: string) => {
@@ -184,11 +190,34 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({ className }) => {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => {
-            // TODO: Implement copy
-          }}
-          title="Copy"
+          onClick={() => undo()}
+          title="Undo (Ctrl+Z)"
           className="h-8 w-8"
+          disabled={!diagram.history.canUndo}
+        >
+          <Undo className="h-4 w-4" />
+        </Button>
+        
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => redo()}
+          title="Redo (Ctrl+Y)"
+          className="h-8 w-8"
+          disabled={!diagram.history.canRedo}
+        >
+          <Redo className="h-4 w-4" />
+        </Button>
+        
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => {
+            copyCells()
+          }}
+          title="Copy (Ctrl+C)"
+          className="h-8 w-8"
+          disabled={diagram.selection.cells.length === 0}
         >
           <Copy className="h-4 w-4" />
         </Button>
@@ -197,10 +226,23 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({ className }) => {
           variant="ghost"
           size="icon"
           onClick={() => {
-            // TODO: Implement delete selected
+            const store = useGraphStore.getState()
+            const selectedIds = store.diagram.selection.cells
+            
+            selectedIds.forEach(id => {
+              const cell = store.getCellById(id)
+              if (cell) {
+                if ('vertex' in cell && cell.vertex) {
+                  store.deleteNode(id)
+                } else if ('edge' in cell && cell.edge) {
+                  store.deleteEdge(id)
+                }
+              }
+            })
           }}
-          title="Delete Selected"
+          title="Delete Selected (Delete)"
           className="h-8 w-8"
+          disabled={diagram.selection.cells.length === 0}
         >
           <Trash2 className="h-4 w-4" />
         </Button>

@@ -23,7 +23,6 @@ const getVertexStyle = (node: GraphNode): CellStyle => {
   const style: CellStyle = {
     shape,
     rounded: true,
-    html: true,
     whiteSpace: 'wrap',
     align: constants.ALIGN.CENTER,
     verticalAlign: constants.ALIGN.MIDDLE,
@@ -75,6 +74,8 @@ const getEdgeStyle = (edge: GraphEdge): CellStyle => {
 
   const style: CellStyle = {
     endArrow: constants.ARROW.BLOCK,
+    edgeStyle: constants.EDGESTYLE.ORTHOGONAL,
+    rounded: true,
   }
 
   if (edgeStyle.lineColor) {
@@ -91,7 +92,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
   const isApplyingStoreRef = useRef(false)
   const isDraggingRef = useRef(false)
 
-  const { diagram, selectedTool } = useGraphStore()
+  const { 
+    diagram, 
+    selectedTool, 
+    undo, 
+    redo, 
+    copyCells 
+  } = useGraphStore()
 
   const cursorClass = useMemo(() => {
     if (selectedTool === 'add-text') return 'text'
@@ -122,19 +129,24 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     new RubberBandHandler(graph)
 
     // Add node/text on click
-    graph.addListener(InternalEvent.CLICK, (_sender, evt) => {
+    graph.addListener(InternalEvent.CLICK, (_sender: any, evt: any) => {
       if (isApplyingStoreRef.current) return
       if (isDraggingRef.current) return
 
       const cell = evt.getProperty('cell') as Cell | null
-      if (cell) return
-
       const mouseEvent = evt.getProperty('event') as MouseEvent | undefined
       if (!mouseEvent) return
 
       const store = useGraphStore.getState()
       const tool = store.selectedTool
 
+      // If clicking on a cell with select tool, let the selection handler deal with it
+      if (cell) {
+        // Don't create new nodes if we're clicking on an existing cell
+        return
+      }
+
+      // Only create new nodes if we're not in select mode or edge mode
       if (tool === 'select' || tool === 'add-edge') return
 
       const pt = graph.getPointForEvent(mouseEvent)
@@ -205,7 +217,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     })
 
     // Sync moved cells -> store
-    graph.addListener(InternalEvent.CELLS_MOVED, (_sender, evt) => {
+    graph.addListener(InternalEvent.CELLS_MOVED, (_sender: any, evt: any) => {
       if (isApplyingStoreRef.current) return
 
       const cells = (evt.getProperty('cells') as Cell[] | undefined) ?? []
@@ -240,7 +252,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     })
 
     // Sync resized cells -> store
-    graph.addListener(InternalEvent.CELLS_RESIZED, (_sender, evt) => {
+    graph.addListener(InternalEvent.CELLS_RESIZED, (_sender: any, evt: any) => {
       if (isApplyingStoreRef.current) return
 
       const cells = (evt.getProperty('cells') as Cell[] | undefined) ?? []
@@ -265,7 +277,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     })
 
     // Sync viewport (scale & translate) -> store
-    graph.getView().addListener(InternalEvent.SCALE_AND_TRANSLATE, (_sender, evt) => {
+    graph.getView().addListener(InternalEvent.SCALE_AND_TRANSLATE, (_sender: any, evt: any) => {
       if (isApplyingStoreRef.current) return
 
       const scale = evt.getProperty('scale') as number | undefined
@@ -283,6 +295,58 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       graph.destroy()
     }
   }, [])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check if we're in an input field
+      const target = event.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return
+      }
+
+      // Ctrl+Z or Cmd+Z for undo
+      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+        event.preventDefault()
+        undo()
+      }
+      // Ctrl+Shift+Z or Ctrl+Y or Cmd+Shift+Z for redo
+      else if (
+        ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'z') ||
+        ((event.ctrlKey || event.metaKey) && event.key === 'y')
+      ) {
+        event.preventDefault()
+        redo()
+      }
+      // Ctrl+C or Cmd+C for copy
+      else if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+        event.preventDefault()
+        copyCells()
+      }
+      // Delete key to delete selected cells
+      else if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault()
+        const store = useGraphStore.getState()
+        const selectedIds = store.diagram.selection.cells
+        
+        selectedIds.forEach(id => {
+          const cell = store.getCellById(id)
+          if (cell) {
+            if ('vertex' in cell && cell.vertex) {
+              store.deleteNode(id)
+            } else if ('edge' in cell && cell.edge) {
+              store.deleteEdge(id)
+            }
+          }
+        })
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [undo, redo, copyCells])
 
   // Apply grid settings
   useEffect(() => {

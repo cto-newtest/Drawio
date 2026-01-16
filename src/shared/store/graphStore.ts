@@ -87,12 +87,20 @@ export interface GraphDiagram {
   }
 }
 
+interface HistoryState {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  selection: GraphSelection
+}
+
 interface GraphStore {
   // State
   diagram: GraphDiagram
   selectedTool: string
   isLoading: boolean
   error: string | null
+  historyStack: HistoryState[]
+  historyIndex: number
   
   // Actions
   // Node actions
@@ -110,6 +118,7 @@ interface GraphStore {
   selectCells: (cellIds: string[]) => void
   clearSelection: () => void
   selectAll: () => void
+  copyCells: () => void
   
   // Viewport actions
   setViewport: (viewport: Partial<GraphViewport>) => void
@@ -132,6 +141,7 @@ interface GraphStore {
   // History actions
   undo: () => void
   redo: () => void
+  saveHistory: () => void
   
   // Diagram actions
   loadDiagram: (diagram: GraphDiagram) => void
@@ -224,9 +234,13 @@ export const useGraphStore = create<GraphStore>()(
       selectedTool: 'select',
       isLoading: false,
       error: null,
+      historyStack: [],
+      historyIndex: -1,
       
       // Node actions
       addNode: (node) => {
+        get().saveHistory()
+        
         const id = uuidv4()
         const newNode: GraphNode = {
           id,
@@ -247,6 +261,10 @@ export const useGraphStore = create<GraphStore>()(
               ...state.diagram.metadata,
               modified: new Date().toISOString(),
             },
+            history: {
+              ...state.diagram.history,
+              canUndo: true,
+            },
           },
         }))
         
@@ -254,6 +272,20 @@ export const useGraphStore = create<GraphStore>()(
       },
       
       updateNode: (id, updates) => {
+        const state = get()
+        const node = state.diagram.nodes.find(n => n.id === id)
+        if (!node) return
+        
+        // Only save history if it's a significant change (not just position updates from drag)
+        const isSignificantChange = updates.value !== undefined || 
+                                    updates.width !== undefined || 
+                                    updates.height !== undefined ||
+                                    updates.style !== undefined
+        
+        if (isSignificantChange) {
+          get().saveHistory()
+        }
+        
         set((state) => ({
           diagram: {
             ...state.diagram,
@@ -269,6 +301,8 @@ export const useGraphStore = create<GraphStore>()(
       },
       
       deleteNode: (id) => {
+        get().saveHistory()
+        
         set((state) => ({
           diagram: {
             ...state.diagram,
@@ -283,6 +317,10 @@ export const useGraphStore = create<GraphStore>()(
             metadata: {
               ...state.diagram.metadata,
               modified: new Date().toISOString(),
+            },
+            history: {
+              ...state.diagram.history,
+              canUndo: true,
             },
           },
         }))
@@ -302,6 +340,8 @@ export const useGraphStore = create<GraphStore>()(
       
       // Edge actions
       addEdge: (edge) => {
+        get().saveHistory()
+        
         const id = uuidv4()
         const newEdge: GraphEdge = {
           id,
@@ -319,6 +359,10 @@ export const useGraphStore = create<GraphStore>()(
               ...state.diagram.metadata,
               modified: new Date().toISOString(),
             },
+            history: {
+              ...state.diagram.history,
+              canUndo: true,
+            },
           },
         }))
         
@@ -326,6 +370,8 @@ export const useGraphStore = create<GraphStore>()(
       },
       
       updateEdge: (id, updates) => {
+        get().saveHistory()
+        
         set((state) => ({
           diagram: {
             ...state.diagram,
@@ -341,6 +387,8 @@ export const useGraphStore = create<GraphStore>()(
       },
       
       deleteEdge: (id) => {
+        get().saveHistory()
+        
         set((state) => ({
           diagram: {
             ...state.diagram,
@@ -352,6 +400,10 @@ export const useGraphStore = create<GraphStore>()(
             metadata: {
               ...state.diagram.metadata,
               modified: new Date().toISOString(),
+            },
+            history: {
+              ...state.diagram.history,
+              canUndo: true,
             },
           },
         }))
@@ -395,6 +447,68 @@ export const useGraphStore = create<GraphStore>()(
             selection: {
               ...state.diagram.selection,
               cells: allCellIds,
+            },
+          },
+        }))
+      },
+      
+      copyCells: () => {
+        const state = get()
+        const selectedIds = state.diagram.selection.cells
+        
+        if (selectedIds.length === 0) return
+        
+        get().saveHistory()
+        
+        // Find selected nodes
+        const selectedNodes = state.diagram.nodes.filter(node => 
+          selectedIds.includes(node.id)
+        )
+        
+        // Create copies with new IDs and offset position
+        const newNodes: GraphNode[] = []
+        const idMap = new Map<string, string>() // old id -> new id
+        
+        selectedNodes.forEach(node => {
+          const newId = uuidv4()
+          idMap.set(node.id, newId)
+          
+          newNodes.push({
+            ...node,
+            id: newId,
+            x: node.x + 20,
+            y: node.y + 20,
+          })
+        })
+        
+        // Copy edges that connect copied nodes
+        const selectedEdges = state.diagram.edges.filter(edge =>
+          idMap.has(edge.source) && idMap.has(edge.target)
+        )
+        
+        const newEdges: GraphEdge[] = selectedEdges.map(edge => ({
+          ...edge,
+          id: uuidv4(),
+          source: idMap.get(edge.source)!,
+          target: idMap.get(edge.target)!,
+        }))
+        
+        set((state) => ({
+          diagram: {
+            ...state.diagram,
+            nodes: [...state.diagram.nodes, ...newNodes],
+            edges: [...state.diagram.edges, ...newEdges],
+            selection: {
+              ...state.diagram.selection,
+              cells: newNodes.map(n => n.id),
+            },
+            metadata: {
+              ...state.diagram.metadata,
+              modified: new Date().toISOString(),
+            },
+            history: {
+              ...state.diagram.history,
+              canUndo: true,
             },
           },
         }))
@@ -519,14 +633,73 @@ export const useGraphStore = create<GraphStore>()(
       },
       
       // History actions
+      saveHistory: () => {
+        const state = get()
+        const historyState: HistoryState = {
+          nodes: JSON.parse(JSON.stringify(state.diagram.nodes)),
+          edges: JSON.parse(JSON.stringify(state.diagram.edges)),
+          selection: JSON.parse(JSON.stringify(state.diagram.selection)),
+        }
+        
+        // Remove any future history if we're not at the end
+        const newStack = state.historyStack.slice(0, state.historyIndex + 1)
+        newStack.push(historyState)
+        
+        // Keep only maxHistory items
+        const maxHistory = state.diagram.history.maxHistory
+        const trimmedStack = newStack.slice(-maxHistory)
+        
+        set({
+          historyStack: trimmedStack,
+          historyIndex: trimmedStack.length - 1,
+        })
+      },
+      
       undo: () => {
-        // TODO: Implement history management
-        console.log('Undo not implemented yet')
+        const state = get()
+        
+        if (state.historyIndex < 0) return
+        
+        const historyState = state.historyStack[state.historyIndex]
+        
+        set((state) => ({
+          diagram: {
+            ...state.diagram,
+            nodes: JSON.parse(JSON.stringify(historyState.nodes)),
+            edges: JSON.parse(JSON.stringify(historyState.edges)),
+            selection: JSON.parse(JSON.stringify(historyState.selection)),
+            history: {
+              ...state.diagram.history,
+              canUndo: state.historyIndex > 0,
+              canRedo: true,
+            },
+          },
+          historyIndex: state.historyIndex - 1,
+        }))
       },
       
       redo: () => {
-        // TODO: Implement history management
-        console.log('Redo not implemented yet')
+        const state = get()
+        
+        if (state.historyIndex >= state.historyStack.length - 1) return
+        
+        const nextIndex = state.historyIndex + 1
+        const historyState = state.historyStack[nextIndex]
+        
+        set((state) => ({
+          diagram: {
+            ...state.diagram,
+            nodes: JSON.parse(JSON.stringify(historyState.nodes)),
+            edges: JSON.parse(JSON.stringify(historyState.edges)),
+            selection: JSON.parse(JSON.stringify(historyState.selection)),
+            history: {
+              ...state.diagram.history,
+              canUndo: true,
+              canRedo: nextIndex < state.historyStack.length - 1,
+            },
+          },
+          historyIndex: nextIndex,
+        }))
       },
       
       // Diagram actions
