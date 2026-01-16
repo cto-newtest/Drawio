@@ -338,18 +338,21 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
 
     if (isEdgeTool) {
       graph.getAllConnectionConstraints = (terminal) => {
-        if (terminal != null && terminal.isVertex()) {
-          return [
-            new ConnectionConstraint(new Point(0, 0), true), // Top-left
-            new ConnectionConstraint(new Point(0.5, 0), true), // Top-center
-            new ConnectionConstraint(new Point(1, 0), true), // Top-right
-            new ConnectionConstraint(new Point(0, 0.5), true), // Middle-left
-            new ConnectionConstraint(new Point(0.5, 0.5), true), // Center
-            new ConnectionConstraint(new Point(1, 0.5), true), // Middle-right
-            new ConnectionConstraint(new Point(0, 1), true), // Bottom-left
-            new ConnectionConstraint(new Point(0.5, 1), true), // Bottom-center
-            new ConnectionConstraint(new Point(1, 1), true), // Bottom-right
-          ]
+        if (terminal != null) {
+          const cell = terminal.cell
+          if (cell != null && cell.isVertex()) {
+            return [
+              new ConnectionConstraint(new Point(0, 0), true), // Top-left
+              new ConnectionConstraint(new Point(0.5, 0), true), // Top-center
+              new ConnectionConstraint(new Point(1, 0), true), // Top-right
+              new ConnectionConstraint(new Point(0, 0.5), true), // Middle-left
+              new ConnectionConstraint(new Point(0.5, 0.5), true), // Center
+              new ConnectionConstraint(new Point(1, 0.5), true), // Middle-right
+              new ConnectionConstraint(new Point(0, 1), true), // Bottom-left
+              new ConnectionConstraint(new Point(0.5, 1), true), // Bottom-center
+              new ConnectionConstraint(new Point(1, 1), true), // Bottom-right
+            ]
+          }
         }
         return null
       }
@@ -358,12 +361,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     }
   }, [selectedTool])
 
-  // Keyboard shortcuts (Copy and Delete only, Undo/Redo moved to GraphPage)
+  // Keyboard shortcuts and wheel zoom
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Check if we're in an input field
       const target = event.target as HTMLElement
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === 'true') {
         return
       }
 
@@ -391,9 +394,44 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       }
     }
 
+    const handleWheel = (event: WheelEvent) => {
+      // Only handle wheel events when Ctrl/Cmd is pressed to avoid conflicts with page scrolling
+      if (!event.ctrlKey && !event.metaKey) {
+        return
+      }
+      
+      event.preventDefault()
+      
+      const store = useGraphStore.getState()
+      const currentScale = store.diagram.viewport.scale
+      
+      // Calculate new scale based on wheel direction
+      // Scroll up (deltaY < 0) = zoom in, scroll down (deltaY > 0) = zoom out
+      const zoomFactor = event.deltaY < 0 ? 1.1 : 0.9
+      const newScale = Math.max(0.1, Math.min(5, currentScale * zoomFactor))
+      
+      // Only save to history if scale actually changed
+      if (Math.abs(newScale - currentScale) > 0.001) {
+        store.saveHistory()
+      }
+      
+      // Apply zoom
+      store.setViewport({ scale: newScale })
+    }
+
     window.addEventListener('keydown', handleKeyDown)
+    
+    // Add wheel listener to the container for better zoom experience
+    const container = containerRef.current
+    if (container) {
+      container.addEventListener('wheel', handleWheel, { passive: false })
+    }
+
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
+      if (container) {
+        container.removeEventListener('wheel', handleWheel)
+      }
     }
   }, [copyCells])
 

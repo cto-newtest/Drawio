@@ -176,13 +176,23 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({ className }) => {
               variant="ghost"
               size="icon"
               onClick={() => handleToolClick(tool.id)}
-              title={tool.label}
+              title={
+                tool.id === 'zoom-in' ? 'Zoom In (+ or Ctrl+Mouse Wheel Up)' :
+                tool.id === 'zoom-out' ? 'Zoom Out (- or Ctrl+Mouse Wheel Down)' :
+                tool.id === 'reset-zoom' ? 'Reset Zoom (Ctrl+0)' :
+                tool.label
+              }
               className="h-8 w-8"
             >
               <Icon className="h-4 w-4" />
             </Button>
           )
         })}
+        
+        {/* Zoom indicator */}
+        <div className="text-xs text-muted-foreground px-2 border rounded mx-1">
+          {Math.round(diagram.viewport.scale * 100)}%
+        </div>
       </div>
 
       {/* Action Tools */}
@@ -191,7 +201,7 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({ className }) => {
           variant="ghost"
           size="icon"
           onClick={() => undo()}
-          title="Undo (Ctrl+Z)"
+          title="Undo (Ctrl+Z or Cmd+Z)"
           className="h-8 w-8"
           disabled={!diagram.history.canUndo}
         >
@@ -202,7 +212,7 @@ export const GraphToolbar: React.FC<GraphToolbarProps> = ({ className }) => {
           variant="ghost"
           size="icon"
           onClick={() => redo()}
-          title="Redo (Ctrl+Y)"
+          title="Redo (Ctrl+Y, Ctrl+Shift+Z or Cmd+Y)"
           className="h-8 w-8"
           disabled={!diagram.history.canRedo}
         >
