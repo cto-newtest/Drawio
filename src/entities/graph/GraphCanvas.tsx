@@ -244,6 +244,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
           y: geo.y + geo.height / 2,
         })
       }
+      store.saveHistory()
     })
 
     // Track drag start to prevent duplicate node creation
@@ -302,6 +303,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
           height: geo.height,
         })
       }
+      store.saveHistory()
     })
 
     // Sync viewport (scale & translate) -> store
@@ -356,7 +358,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     }
   }, [selectedTool])
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (Copy and Delete only, Undo/Redo moved to GraphPage)
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Check if we're in an input field
@@ -365,21 +367,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
         return
       }
 
-      // Ctrl+Z or Cmd+Z for undo
-      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
-        event.preventDefault()
-        undo()
-      }
-      // Ctrl+Shift+Z or Ctrl+Y or Cmd+Shift+Z for redo
-      else if (
-        ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'z') ||
-        ((event.ctrlKey || event.metaKey) && event.key === 'y')
-      ) {
-        event.preventDefault()
-        redo()
-      }
       // Ctrl+C or Cmd+C for copy
-      else if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
         event.preventDefault()
         copyCells()
       }
@@ -406,7 +395,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [undo, redo, copyCells])
+  }, [copyCells])
 
   // Apply grid settings
   useEffect(() => {
