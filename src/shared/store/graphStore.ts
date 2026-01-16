@@ -520,6 +520,10 @@ export const useGraphStore = create<GraphStore>()(
               ...state.diagram.viewport,
               ...viewport,
             },
+            metadata: {
+              ...state.diagram.metadata,
+              modified: new Date().toISOString(),
+            },
           },
         }))
       },
