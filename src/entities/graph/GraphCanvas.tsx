@@ -110,6 +110,11 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
 
     graph.setPanning(true)
     graph.setConnectable(false)
+    graph.setCellsCloneable(false)
+    graph.setCellsEditable(true)
+    graph.setCellsResizable(true)
+    graph.setCellsMovable(true)
+    graph.setHtmlLabels(true)
 
     // Rubberband selection
     // eslint-disable-next-line no-new
@@ -321,14 +326,25 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
         if (!cell.isVertex()) continue
 
         const geo = cell.getGeometry()
-        const next = geo ? geo.clone() : new Geometry()
-        next.x = x
-        next.y = y
-        next.width = node.width
-        next.height = node.height
-        model.setGeometry(cell, next)
+        if (
+          !geo ||
+          geo.x !== x ||
+          geo.y !== y ||
+          geo.width !== node.width ||
+          geo.height !== node.height
+        ) {
+          const next = geo ? geo.clone() : new Geometry()
+          next.x = x
+          next.y = y
+          next.width = node.width
+          next.height = node.height
+          model.setGeometry(cell, next)
+        }
 
-        model.setValue(cell, node.value)
+        if (cell.value !== node.value) {
+          model.setValue(cell, node.value)
+        }
+        
         model.setStyle(cell, style)
       }
 
