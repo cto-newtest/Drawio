@@ -776,6 +776,7 @@ export const useGraphStore = create<GraphStore>()(
         // TODO: Implement pathfinding algorithm
         return []
       },
-    }))
+    })),
+    { enabled: import.meta.env.DEV }
   )
 )
