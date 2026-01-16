@@ -1,0 +1,254 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222.2 84% 4.9%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222.2 84% 4.9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
+
+    /* Graph specific variables */
+    --graph-workspace: 0 0% 100%;
+    --graph-grid: 210 40% 96%;
+    --graph-node-default: 210 40% 98%;
+    --graph-node-hover: 210 40% 94%;
+    --graph-node-selected: 221.2 83.2% 53.3%;
+    --graph-edge-default: 215.4 16.3% 46.9%;
+    --graph-edge-hover: 221.2 83.2% 53.3%;
+    --graph-edge-selected: 221.2 83.2% 53.3%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 84% 4.9%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 94.1%;
+
+    /* Graph specific dark theme */
+    --graph-workspace: 222.2 84% 4.9%;
+    --graph-grid: 217.2 32.6% 17.5%;
+    --graph-node-default: 217.2 32.6% 17.5%;
+    --graph-node-hover: 217.2 32.6% 25%;
+    --graph-node-selected: 217.2 91.2% 59.8%;
+    --graph-edge-default: 215 20.2% 65.1%;
+    --graph-edge-hover: 217.2 91.2% 59.8%;
+    --graph-edge-selected: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Graph workspace styles */
+.graph-workspace {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.graph-canvas {
+  width: 100%;
+  height: 100%;
+  background-color: hsl(var(--graph-workspace));
+  cursor: default;
+}
+
+.graph-canvas.grabbing {
+  cursor: grabbing;
+}
+
+.graph-canvas.crosshair {
+  cursor: crosshair;
+}
+
+.graph-canvas.text {
+  cursor: text;
+}
+
+.graph-canvas.pointer {
+  cursor: pointer;
+}
+
+/* Grid pattern */
+.graph-grid {
+  background-image: 
+    linear-gradient(to right, hsl(var(--graph-grid)) 1px, transparent 1px),
+    linear-gradient(to bottom, hsl(var(--graph-grid)) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Selection rectangle */
+.graph-selection {
+  position: absolute;
+  border: 1px solid hsl(var(--primary));
+  background-color: hsl(var(--primary) / 0.1);
+  pointer-events: none;
+  z-index: 1000;
+}
+
+/* Node styles */
+.graph-node {
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--graph-node-default));
+  border-radius: var(--radius);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.graph-node:hover {
+  background-color: hsl(var(--graph-node-hover));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.graph-node.selected {
+  background-color: hsl(var(--graph-node-selected));
+  border-color: hsl(var(--graph-node-selected));
+  color: hsl(var(--primary-foreground));
+  box-shadow: 0 0 0 2px hsl(var(--graph-node-selected) / 0.2);
+}
+
+.graph-node.oval {
+  border-radius: 50px;
+}
+
+.graph-node.rhombus {
+  transform: rotate(45deg);
+}
+
+.graph-node.rhombus .graph-node-content {
+  transform: rotate(-45deg);
+}
+
+/* Edge styles */
+.graph-edge {
+  stroke: hsl(var(--graph-edge-default));
+  stroke-width: 1;
+  fill: none;
+}
+
+.graph-edge:hover {
+  stroke: hsl(var(--graph-edge-hover));
+  stroke-width: 2;
+}
+
+.graph-edge.selected {
+  stroke: hsl(var(--graph-edge-selected));
+  stroke-width: 2;
+}
+
+.graph-edge.arrow {
+  marker-end: url(#arrowhead);
+}
+
+/* Toolbar styles */
+.graph-toolbar {
+  @apply bg-background border border-border rounded-lg shadow-sm p-2;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.graph-toolbar-button {
+  @apply p-2 hover:bg-accent rounded-md transition-colors;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.graph-toolbar-button.active {
+  @apply bg-primary text-primary-foreground;
+}
+
+.graph-toolbar-button:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* Property panel styles */
+.graph-property-panel {
+  @apply bg-background border-l border-border p-4;
+  width: 300px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.graph-property-section {
+  @apply mb-6;
+}
+
+.graph-property-section h3 {
+  @apply text-sm font-semibold mb-3 text-foreground;
+}
+
+.graph-property-field {
+  @apply space-y-2;
+}
+
+.graph-property-label {
+  @apply text-sm font-medium text-muted-foreground;
+}
+
+.graph-property-input {
+  @apply w-full px-3 py-2 border border-input rounded-md bg-background text-foreground;
+}
+
+.graph-property-input:focus {
+  @apply outline-none ring-2 ring-ring ring-offset-2;
+}
+
+/* Mini map styles */
+.graph-minimap {
+  @apply bg-background border border-border rounded-lg shadow-sm;
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  width: 200px;
+  height: 150px;
+  pointer-events: auto;
+}
+
+.graph-minimap-viewport {
+  position: absolute;
+  border: 2px solid hsl(var(--primary));
+  background-color: hsl(var(--primary) / 0.1);
+  pointer-events: none;
+}
