@@ -7,6 +7,8 @@ import {
   type CellStyle,
   Geometry,
   constants,
+  ConnectionConstraint,
+  Point,
 } from '@maxgraph/core'
 import { useGraphStore, type GraphEdge, type GraphNode } from '@/shared/store/graphStore'
 import { cn } from '@/shared/lib/utils'
@@ -82,6 +84,10 @@ const getEdgeStyle = (edge: GraphEdge): CellStyle => {
     style.strokeColor = edgeStyle.lineColor
   }
 
+  if (edgeStyle.endArrow === 'none') {
+    style.endArrow = constants.NONE
+  }
+
   return style
 }
 
@@ -132,6 +138,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     graph.addListener(InternalEvent.CLICK, (_sender: any, evt: any) => {
       if (isApplyingStoreRef.current) return
       if (isDraggingRef.current) return
+      if (evt.isConsumed()) return
 
       const cell = evt.getProperty('cell') as Cell | null
       const mouseEvent = evt.getProperty('event') as MouseEvent | undefined
@@ -147,7 +154,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       }
 
       // Only create new nodes if we're not in select mode or edge mode
-      if (tool === 'select' || tool === 'add-edge') return
+      if (tool === 'select' || tool === 'add-edge' || tool === 'add-line') return
 
       const pt = graph.getPointForEvent(mouseEvent)
 
@@ -248,7 +255,28 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     graph.addListener(InternalEvent.MOVE_END, () => {
       setTimeout(() => {
         isDraggingRef.current = false
-      }, 0)
+      }, 100)
+    })
+
+    // Sync new edges -> store
+    graph.addListener(InternalEvent.CONNECT, (_sender: any, evt: any) => {
+      if (isApplyingStoreRef.current) return
+
+      const edge = evt.getProperty('cell') as Cell
+      if (edge && edge.isEdge()) {
+        const source = edge.getTerminal(true)
+        const target = edge.getTerminal(false)
+        if (source && target) {
+          const store = useGraphStore.getState()
+          store.addEdge({
+            source: source.id as string,
+            target: target.id as string,
+            style: store.selectedTool === 'add-line' ? { endArrow: 'none' } : {},
+          })
+          // Remove from graph model since store will re-add it
+          graph.getDataModel().remove(edge)
+        }
+      }
     })
 
     // Sync resized cells -> store
@@ -295,6 +323,38 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       graph.destroy()
     }
   }, [])
+
+  // Update graph properties based on selected tool
+  useEffect(() => {
+    const graph = graphRef.current
+    if (!graph) return
+
+    const isEdgeTool = selectedTool === 'add-edge' || selectedTool === 'add-line'
+
+    graph.setConnectable(isEdgeTool)
+    graph.setCellsResizable(!isEdgeTool)
+
+    if (isEdgeTool) {
+      graph.getAllConnectionConstraints = (terminal) => {
+        if (terminal != null && terminal.isVertex()) {
+          return [
+            new ConnectionConstraint(new Point(0, 0), true), // Top-left
+            new ConnectionConstraint(new Point(0.5, 0), true), // Top-center
+            new ConnectionConstraint(new Point(1, 0), true), // Top-right
+            new ConnectionConstraint(new Point(0, 0.5), true), // Middle-left
+            new ConnectionConstraint(new Point(0.5, 0.5), true), // Center
+            new ConnectionConstraint(new Point(1, 0.5), true), // Middle-right
+            new ConnectionConstraint(new Point(0, 1), true), // Bottom-left
+            new ConnectionConstraint(new Point(0.5, 1), true), // Bottom-center
+            new ConnectionConstraint(new Point(1, 1), true), // Bottom-right
+          ]
+        }
+        return null
+      }
+    } else {
+      graph.getAllConnectionConstraints = () => null
+    }
+  }, [selectedTool])
 
   // Keyboard shortcuts
   useEffect(() => {
