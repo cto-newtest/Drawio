@@ -252,3 +252,6 @@
   background-color: hsl(var(--primary) / 0.1);
   pointer-events: none;
 }
+
+/* maxGraph preview colors are configured at runtime in GraphCanvas using CSS variables
+   (eg: hsl(var(--primary))) so previews remain visible in dark/light themes. */
