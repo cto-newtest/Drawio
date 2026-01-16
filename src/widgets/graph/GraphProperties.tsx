@@ -18,6 +18,7 @@ export const GraphProperties: React.FC<GraphPropertiesProps> = ({ className }) =
     updateEdge,
     setTheme,
     updateSettings,
+    saveHistory,
   } = useGraphStore()
 
   const [selectedCell, setSelectedCell] = useState<any>(null)
@@ -88,6 +89,10 @@ export const GraphProperties: React.FC<GraphPropertiesProps> = ({ className }) =
           },
         })
       }
+      
+      // Save history for property changes
+      // Note: In a real app, we might want to debounce this or only save onBlur
+      saveHistory()
     }
   }
 

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { GraphCanvas } from '@/entities/graph/GraphCanvas'
 import { GraphToolbar } from '@/widgets/graph/GraphToolbar'
 import { GraphProperties } from '@/widgets/graph/GraphProperties'
@@ -6,7 +6,37 @@ import { useGraphStore } from '@/shared/store/graphStore'
 import { cn } from '@/shared/lib/utils'
 
 const GraphPage: React.FC = () => {
-  const { diagram } = useGraphStore()
+  const { diagram, undo, redo } = useGraphStore()
+
+  // Global keyboard shortcuts for Undo/Redo
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check if we're in an input field
+      const target = event.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return
+      }
+
+      // Ctrl+Z or Cmd+Z for undo
+      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+        event.preventDefault()
+        undo()
+      }
+      // Ctrl+Shift+Z or Ctrl+Y or Cmd+Shift+Z for redo
+      else if (
+        ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'z') ||
+        ((event.ctrlKey || event.metaKey) && event.key === 'y')
+      ) {
+        event.preventDefault()
+        redo()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [undo, redo])
 
   return (
     <div className="h-screen w-full flex flex-col bg-background">

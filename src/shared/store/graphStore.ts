@@ -234,13 +234,15 @@ export const useGraphStore = create<GraphStore>()(
       selectedTool: 'select',
       isLoading: false,
       error: null,
-      historyStack: [],
-      historyIndex: -1,
+      historyStack: [{
+        nodes: [],
+        edges: [],
+        selection: { cells: [] },
+      }],
+      historyIndex: 0,
       
       // Node actions
       addNode: (node) => {
-        get().saveHistory()
-        
         const id = uuidv4()
         const newNode: GraphNode = {
           id,
@@ -264,10 +266,12 @@ export const useGraphStore = create<GraphStore>()(
             history: {
               ...state.diagram.history,
               canUndo: true,
+              canRedo: false,
             },
           },
         }))
         
+        get().saveHistory()
         return id
       },
       
@@ -275,16 +279,6 @@ export const useGraphStore = create<GraphStore>()(
         const state = get()
         const node = state.diagram.nodes.find(n => n.id === id)
         if (!node) return
-        
-        // Only save history if it's a significant change (not just position updates from drag)
-        const isSignificantChange = updates.value !== undefined || 
-                                    updates.width !== undefined || 
-                                    updates.height !== undefined ||
-                                    updates.style !== undefined
-        
-        if (isSignificantChange) {
-          get().saveHistory()
-        }
         
         set((state) => ({
           diagram: {
@@ -301,8 +295,6 @@ export const useGraphStore = create<GraphStore>()(
       },
       
       deleteNode: (id) => {
-        get().saveHistory()
-        
         set((state) => ({
           diagram: {
             ...state.diagram,
@@ -321,9 +313,12 @@ export const useGraphStore = create<GraphStore>()(
             history: {
               ...state.diagram.history,
               canUndo: true,
+              canRedo: false,
             },
           },
         }))
+
+        get().saveHistory()
       },
       
       selectNode: (id) => {
@@ -340,8 +335,6 @@ export const useGraphStore = create<GraphStore>()(
       
       // Edge actions
       addEdge: (edge) => {
-        get().saveHistory()
-        
         const id = uuidv4()
         const newEdge: GraphEdge = {
           id,
@@ -362,16 +355,16 @@ export const useGraphStore = create<GraphStore>()(
             history: {
               ...state.diagram.history,
               canUndo: true,
+              canRedo: false,
             },
           },
         }))
-        
+
+        get().saveHistory()
         return id
       },
       
       updateEdge: (id, updates) => {
-        get().saveHistory()
-        
         set((state) => ({
           diagram: {
             ...state.diagram,
@@ -384,11 +377,11 @@ export const useGraphStore = create<GraphStore>()(
             },
           },
         }))
+
+        get().saveHistory()
       },
       
       deleteEdge: (id) => {
-        get().saveHistory()
-        
         set((state) => ({
           diagram: {
             ...state.diagram,
@@ -404,9 +397,12 @@ export const useGraphStore = create<GraphStore>()(
             history: {
               ...state.diagram.history,
               canUndo: true,
+              canRedo: false,
             },
           },
         }))
+
+        get().saveHistory()
       },
       
       // Selection actions
@@ -458,8 +454,6 @@ export const useGraphStore = create<GraphStore>()(
         
         if (selectedIds.length === 0) return
         
-        get().saveHistory()
-        
         // Find selected nodes
         const selectedNodes = state.diagram.nodes.filter(node => 
           selectedIds.includes(node.id)
@@ -509,9 +503,12 @@ export const useGraphStore = create<GraphStore>()(
             history: {
               ...state.diagram.history,
               canUndo: true,
+              canRedo: false,
             },
           },
         }))
+
+        get().saveHistory()
       },
       
       // Viewport actions
@@ -649,18 +646,27 @@ export const useGraphStore = create<GraphStore>()(
         const maxHistory = state.diagram.history.maxHistory
         const trimmedStack = newStack.slice(-maxHistory)
         
-        set({
+        set((state) => ({
           historyStack: trimmedStack,
           historyIndex: trimmedStack.length - 1,
-        })
+          diagram: {
+            ...state.diagram,
+            history: {
+              ...state.diagram.history,
+              canUndo: trimmedStack.length > 1,
+              canRedo: false,
+            },
+          },
+        }))
       },
       
       undo: () => {
         const state = get()
         
-        if (state.historyIndex < 0) return
+        if (state.historyIndex <= 0) return
         
-        const historyState = state.historyStack[state.historyIndex]
+        const nextIndex = state.historyIndex - 1
+        const historyState = state.historyStack[nextIndex]
         
         set((state) => ({
           diagram: {
@@ -670,11 +676,11 @@ export const useGraphStore = create<GraphStore>()(
             selection: JSON.parse(JSON.stringify(historyState.selection)),
             history: {
               ...state.diagram.history,
-              canUndo: state.historyIndex > 0,
+              canUndo: nextIndex > 0,
               canRedo: true,
             },
           },
-          historyIndex: state.historyIndex - 1,
+          historyIndex: nextIndex,
         }))
       },
       
