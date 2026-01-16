@@ -10,7 +10,7 @@ const meta = {
     layout: 'fullscreen',
     docs: {
       description: {
-        story: 'Основной компонент canvas для работы с графами, использующий Cytoscape.js',
+        story: 'Основной компонент canvas для работы с графами, использующий maxGraph (@maxgraph/core)',
       },
     },
   },

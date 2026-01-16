@@ -1,350 +1,418 @@
-import React, { useEffect, useRef, useState } from 'react'
-import cytoscape from 'cytoscape'
-import { useGraphStore } from '@/shared/store/graphStore'
+import React, { useEffect, useMemo, useRef } from 'react'
+import {
+  Graph,
+  InternalEvent,
+  RubberBandHandler,
+  type Cell,
+  type CellStyle,
+  Geometry,
+  constants,
+} from '@maxgraph/core'
+import { useGraphStore, type GraphEdge, type GraphNode } from '@/shared/store/graphStore'
 import { cn } from '@/shared/lib/utils'
 
 interface GraphCanvasProps {
   className?: string
 }
 
-export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const cyRef = useRef<any>(null)
-  const [isInitialized, setIsInitialized] = useState(false)
-  
-  const {
-    diagram,
-    selectedTool,
-    addNode,
-    updateNode,
-    deleteNode,
-    selectCells,
-    clearSelection,
-    setViewport,
-    zoomIn,
-    zoomOut,
-    resetZoom,
-    setSelectedTool,
-  } = useGraphStore()
+const getVertexStyle = (node: GraphNode): CellStyle => {
+  const nodeStyle = node.style ?? {}
 
-  // Initialize cytoscape
-  useEffect(() => {
-    if (!containerRef.current || isInitialized) return
+  const shape = (nodeStyle.shape as string | undefined) ?? constants.SHAPE.RECTANGLE
 
-    try {
-      const container = containerRef.current
-      const cy = cytoscape({
-        container,
-        elements: [],
-        style: [
-          {
-            selector: 'node',
-            style: {
-              'background-color': 'hsl(var(--graph-node-default))',
-              'border-color': 'hsl(var(--border))',
-              'border-width': 1,
-              'border-style': 'solid',
-              'label': 'data(label)',
-              'text-valign': 'center',
-              'text-halign': 'center',
-              'font-family': 'Inter, sans-serif',
-              'font-size': 12,
-              'color': 'hsl(var(--foreground))',
-              'width': 'data(width)',
-              'height': 'data(height)',
-            },
-          },
-          {
-            selector: 'node:hover',
-            style: {
-              'background-color': 'hsl(var(--graph-node-hover))',
-            },
-          },
-          {
-            selector: 'node:selected',
-            style: {
-              'background-color': 'hsl(var(--graph-node-selected))',
-              'border-color': 'hsl(var(--graph-node-selected))',
-              'border-width': 2,
-            },
-          },
-          {
-            selector: 'edge',
-            style: {
-              'width': 1,
-              'line-color': 'hsl(var(--graph-edge-default))',
-              'target-arrow-color': 'hsl(var(--graph-edge-default))',
-              'target-arrow-shape': 'triangle',
-              'curve-style': 'bezier',
-            },
-          },
-          {
-            selector: 'edge:hover',
-            style: {
-              'width': 2,
-              'line-color': 'hsl(var(--graph-edge-hover))',
-              'target-arrow-color': 'hsl(var(--graph-edge-hover))',
-            },
-          },
-          {
-            selector: 'edge:selected',
-            style: {
-              'width': 2,
-              'line-color': 'hsl(var(--graph-edge-selected))',
-              'target-arrow-color': 'hsl(var(--graph-edge-selected))',
-            },
-          },
-        ],
-        layout: { name: 'preset' },
-        wheelSensitivity: 0.1,
-        userZoomingEnabled: true,
-        userPanningEnabled: true,
-        boxSelectionEnabled: true,
-        autoungrabify: false,
-        autolock: false,
-        autounselectify: false,
-      })
-
-      cyRef.current = cy
-      setIsInitialized(true)
-
-      // Handle resize
-      const handleResize = () => {
-        if (cy) {
-          cy.resize()
-        }
-      }
-
-      window.addEventListener('resize', handleResize)
-
-      return () => {
-        window.removeEventListener('resize', handleResize)
-        if (cy) {
-          cy.destroy()
-        }
-      }
-    } catch (error) {
-      console.error('Failed to initialize graph:', error)
-    }
-  }, [isInitialized])
-
-  // Set up event handlers
-  const setupEventHandlers = (cy: any) => {
-    // Selection events
-    cy.on('select', 'node', (event: any) => {
-      const node = event.target
-      selectCells([node.id()])
-    })
-
-    cy.on('select', 'edge', (event: any) => {
-      const edge = event.target
-      selectCells([edge.id()])
-    })
-
-    cy.on('unselect', (event: any) => {
-      const selected = cy.$(':selected')
-      if (selected.length === 0) {
-        clearSelection()
-      }
-    })
-
-    // Drag events
-    cy.on('dragfree', 'node', (event: any) => {
-      const node = event.target
-      updateNode(node.id(), {
-        x: node.position().x,
-        y: node.position().y,
-      })
-    })
-
-    // Tap events for adding nodes
-    cy.on('tap', (event: any) => {
-      if (event.target === cy && selectedTool === 'add-node') {
-        const point = event.position
-        const nodeId = addNode({
-          x: point.x,
-          y: point.y,
-          value: 'New Node',
-          width: 120,
-          height: 60,
-        })
-        
-        // Select the new node
-        const node = cy.getElementById(nodeId)
-        if (node) {
-          node.select()
-        }
-      }
-    })
-
-    // Pan and zoom events
-    cy.on('pan', () => {
-      const pan = cy.pan()
-      setViewport({
-        translateX: pan.x,
-        translateY: pan.y,
-      })
-    })
-
-    cy.on('zoom', () => {
-      setViewport({
-        scale: cy.zoom(),
-      })
-    })
+  const style: CellStyle = {
+    shape,
+    rounded: true,
+    html: true,
+    whiteSpace: 'wrap',
+    align: constants.ALIGN.CENTER,
+    verticalAlign: constants.ALIGN.MIDDLE,
   }
 
-  // Update graph when diagram changes
+  if (nodeStyle.fillColor) {
+    style.fillColor = nodeStyle.fillColor
+  }
+
+  if (nodeStyle.strokeColor) {
+    style.strokeColor = nodeStyle.strokeColor
+  }
+
+  if (nodeStyle.fontColor) {
+    style.fontColor = nodeStyle.fontColor
+  }
+
+  if (nodeStyle.fontSize) {
+    style.fontSize = nodeStyle.fontSize
+  }
+
+  if (nodeStyle.fontFamily) {
+    style.fontFamily = nodeStyle.fontFamily
+  }
+
+  if (nodeStyle.fontWeight === 'bold') {
+    style.fontStyle = constants.FONT.BOLD
+  }
+
+  if (typeof nodeStyle.opacity === 'number') {
+    style.opacity = Math.round(Math.max(0, Math.min(1, nodeStyle.opacity)) * 100)
+  }
+
+  if (typeof nodeStyle.rotation === 'number') {
+    style.rotation = nodeStyle.rotation
+  }
+
+  if (shape === constants.SHAPE.LABEL) {
+    style.fillColor = constants.NONE
+    style.strokeColor = constants.NONE
+    style.rounded = false
+  }
+
+  return style
+}
+
+const getEdgeStyle = (edge: GraphEdge): CellStyle => {
+  const edgeStyle = edge.style ?? {}
+
+  const style: CellStyle = {
+    endArrow: constants.ARROW.BLOCK,
+  }
+
+  if (edgeStyle.lineColor) {
+    style.strokeColor = edgeStyle.lineColor
+  }
+
+  return style
+}
+
+export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const graphRef = useRef<Graph | null>(null)
+  const isApplyingStoreRef = useRef(false)
+
+  const { diagram, selectedTool } = useGraphStore()
+
+  const cursorClass = useMemo(() => {
+    if (selectedTool === 'add-text') return 'text'
+    if (selectedTool.startsWith('add-') && selectedTool !== 'add-edge') return 'crosshair'
+    return 'pointer'
+  }, [selectedTool])
+
+  // Init maxGraph
   useEffect(() => {
-    if (!cyRef.current || !isInitialized) return
+    const container = containerRef.current
+    if (!container || graphRef.current) return
 
-    const cy = cyRef.current
-    const existingNodeIds = new Set()
-    const existingEdgeIds = new Set()
+    InternalEvent.disableContextMenu(container)
 
-    // Update nodes
-    diagram.nodes.forEach((node) => {
-      let element = cy.getElementById(node.id)
-      
-      if (element.empty()) {
-        // Create new node
-        const nodeData = {
-          id: node.id,
-          label: node.value,
-          width: node.width,
-          height: node.height,
-        }
-        
-        element = cy.add({
-          group: 'nodes',
-          data: nodeData,
-          position: { x: node.x, y: node.y },
-        })
-      } else {
-        // Update existing node
-        element.position({ x: node.x, y: node.y })
-        element.data({
-          ...element.data(),
-          label: node.value,
-          width: node.width,
-          height: node.height,
-        })
+    const graph = new Graph(container)
+    graphRef.current = graph
+
+    graph.setPanning(true)
+    graph.setConnectable(false)
+
+    // Rubberband selection
+    // eslint-disable-next-line no-new
+    new RubberBandHandler(graph)
+
+    // Add node/text on click
+    graph.addListener(InternalEvent.CLICK, (_sender, evt) => {
+      if (isApplyingStoreRef.current) return
+
+      const cell = evt.getProperty('cell') as Cell | null
+      if (cell) return
+
+      const mouseEvent = evt.getProperty('event') as MouseEvent | undefined
+      if (!mouseEvent) return
+
+      const store = useGraphStore.getState()
+      const tool = store.selectedTool
+
+      if (tool === 'select' || tool === 'add-edge') return
+
+      const pt = graph.getPointForEvent(mouseEvent)
+
+      const base = {
+        x: pt.x,
+        y: pt.y,
       }
-      
-      existingNodeIds.add(node.id)
-    })
 
-    // Update edges
-    diagram.edges.forEach((edge) => {
-      let element = cy.getElementById(edge.id)
-      
-      if (element.empty()) {
-        // Create new edge
-        element = cy.add({
-          group: 'edges',
-          data: {
-            id: edge.id,
-            source: edge.source,
-            target: edge.target,
+      if (tool === 'add-node') {
+        const id = store.addNode({
+          ...base,
+          value: 'Rectangle',
+          width: 120,
+          height: 60,
+          style: { shape: constants.SHAPE.RECTANGLE },
+        })
+        store.selectCells([id])
+      } else if (tool === 'add-oval') {
+        const id = store.addNode({
+          ...base,
+          value: 'Circle',
+          width: 100,
+          height: 100,
+          style: { shape: constants.SHAPE.ELLIPSE },
+        })
+        store.selectCells([id])
+      } else if (tool === 'add-rhombus') {
+        const id = store.addNode({
+          ...base,
+          value: 'Diamond',
+          width: 100,
+          height: 100,
+          style: { shape: constants.SHAPE.RHOMBUS },
+        })
+        store.selectCells([id])
+      } else if (tool === 'add-text') {
+        const id = store.addNode({
+          ...base,
+          value: 'Text',
+          width: 120,
+          height: 30,
+          style: {
+            shape: constants.SHAPE.LABEL,
+            fillColor: constants.NONE,
+            strokeColor: constants.NONE,
           },
         })
+        store.selectCells([id])
+      }
+    })
+
+    // Sync selection -> store
+    graph.getSelectionModel().addListener(InternalEvent.CHANGE, () => {
+      if (isApplyingStoreRef.current) return
+
+      const store = useGraphStore.getState()
+      const ids = graph
+        .getSelectionCells()
+        .map((c) => c.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+
+      if (ids.length === 0) {
+        store.clearSelection()
       } else {
-        // Update existing edge
-        element.data({
-          ...element.data(),
-          source: edge.source,
-          target: edge.target,
+        store.selectCells(ids)
+      }
+    })
+
+    // Sync moved cells -> store
+    graph.addListener(InternalEvent.CELLS_MOVED, (_sender, evt) => {
+      if (isApplyingStoreRef.current) return
+
+      const cells = (evt.getProperty('cells') as Cell[] | undefined) ?? []
+      const store = useGraphStore.getState()
+
+      for (const cell of cells) {
+        if (!cell.isVertex()) continue
+
+        const id = cell.id
+        if (!id) continue
+
+        const geo = cell.getGeometry()
+        if (!geo) continue
+
+        store.updateNode(id, {
+          x: geo.x + geo.width / 2,
+          y: geo.y + geo.height / 2,
         })
       }
-      
-      existingEdgeIds.add(edge.id)
     })
 
-    // Remove deleted elements
-    cy.nodes().forEach((node: any) => {
-      if (!existingNodeIds.has(node.id())) {
-        node.remove()
+    // Sync resized cells -> store
+    graph.addListener(InternalEvent.CELLS_RESIZED, (_sender, evt) => {
+      if (isApplyingStoreRef.current) return
+
+      const cells = (evt.getProperty('cells') as Cell[] | undefined) ?? []
+      const store = useGraphStore.getState()
+
+      for (const cell of cells) {
+        if (!cell.isVertex()) continue
+
+        const id = cell.id
+        if (!id) continue
+
+        const geo = cell.getGeometry()
+        if (!geo) continue
+
+        store.updateNode(id, {
+          x: geo.x + geo.width / 2,
+          y: geo.y + geo.height / 2,
+          width: geo.width,
+          height: geo.height,
+        })
       }
     })
 
-    cy.edges().forEach((edge: any) => {
-      if (!existingEdgeIds.has(edge.id())) {
-        edge.remove()
-      }
-    })
+    // Sync viewport (scale & translate) -> store
+    graph.getView().addListener(InternalEvent.SCALE_AND_TRANSLATE, (_sender, evt) => {
+      if (isApplyingStoreRef.current) return
 
-    // Update selection
-    if (diagram.selection.cells.length > 0) {
-      const selectedElements = cy.collection()
-      diagram.selection.cells.forEach((id) => {
-        const element = cy.getElementById(id)
-        if (!element.empty()) {
-          selectedElements.merge(element)
-        }
+      const scale = evt.getProperty('scale') as number | undefined
+      const translate = evt.getProperty('translate') as { x: number; y: number } | undefined
+
+      const store = useGraphStore.getState()
+      store.setViewport({
+        ...(typeof scale === 'number' ? { scale } : {}),
+        ...(translate ? { translateX: translate.x, translateY: translate.y } : {}),
       })
-      cy.$(':selected').unselect()
-      selectedElements.select()
-    } else {
-      cy.$(':selected').unselect()
-    }
-
-    // Update viewport
-    cy.zoom(diagram.viewport.scale)
-    cy.pan({
-      x: diagram.viewport.translateX,
-      y: diagram.viewport.translateY,
     })
-  }, [diagram, isInitialized])
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!cyRef.current) return
-
-      // Delete selected cells
-      if (event.key === 'Delete' || event.key === 'Backspace') {
-        if (diagram.selection.cells.length > 0) {
-          const cy = cyRef.current
-          const selected = cy.$(':selected')
-          selected.forEach((element: any) => {
-            if (element.isNode()) {
-              deleteNode(element.id())
-            }
-          })
-        }
-      }
-
-      // Zoom shortcuts
-      if (event.ctrlKey || event.metaKey) {
-        switch (event.key) {
-          case '=':
-          case '+':
-            event.preventDefault()
-            zoomIn()
-            break
-          case '-':
-            event.preventDefault()
-            zoomOut()
-            break
-          case '0':
-            event.preventDefault()
-            resetZoom()
-            break
-        }
-      }
+    return () => {
+      graphRef.current = null
+      graph.destroy()
     }
+  }, [])
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [diagram.selection.cells, zoomIn, zoomOut, resetZoom, deleteNode])
+  // Apply grid settings
+  useEffect(() => {
+    const graph = graphRef.current
+    if (!graph) return
+
+    graph.setGridSize(diagram.settings.gridSize)
+    graph.setGridEnabled(diagram.settings.snapToGrid)
+  }, [diagram.settings.gridSize, diagram.settings.snapToGrid])
+
+  // Apply viewport from store
+  useEffect(() => {
+    const graph = graphRef.current
+    if (!graph) return
+
+    isApplyingStoreRef.current = true
+    try {
+      graph
+        .getView()
+        .scaleAndTranslate(diagram.viewport.scale, diagram.viewport.translateX, diagram.viewport.translateY)
+    } finally {
+      isApplyingStoreRef.current = false
+    }
+  }, [diagram.viewport.scale, diagram.viewport.translateX, diagram.viewport.translateY])
+
+  // Apply diagram nodes and edges
+  useEffect(() => {
+    const graph = graphRef.current
+    if (!graph) return
+
+    const model = graph.getDataModel()
+    const parent = graph.getDefaultParent()
+
+    isApplyingStoreRef.current = true
+    model.beginUpdate()
+
+    try {
+      const nodeIds = new Set(diagram.nodes.map((n) => n.id))
+      const edgeIds = new Set(diagram.edges.map((e) => e.id))
+
+      // Upsert nodes
+      for (const node of diagram.nodes) {
+        const cell = model.getCell(node.id)
+
+        const x = node.x - node.width / 2
+        const y = node.y - node.height / 2
+
+        const style = getVertexStyle(node)
+
+        if (!cell) {
+          graph.insertVertex(parent, node.id, node.value, x, y, node.width, node.height, style)
+          continue
+        }
+
+        if (!cell.isVertex()) continue
+
+        const geo = cell.getGeometry()
+        const next = geo ? geo.clone() : new Geometry()
+        next.x = x
+        next.y = y
+        next.width = node.width
+        next.height = node.height
+        model.setGeometry(cell, next)
+
+        model.setValue(cell, node.value)
+        model.setStyle(cell, style)
+      }
+
+      // Remove missing vertices
+      const vertices = graph.getChildVertices(parent)
+      const verticesToRemove = vertices.filter((v) => {
+        const id = v.id
+        return id ? !nodeIds.has(id) : false
+      })
+
+      if (verticesToRemove.length > 0) {
+        graph.removeCells(verticesToRemove, true)
+      }
+
+      // Upsert edges
+      for (const edge of diagram.edges) {
+        const existingEdge = model.getCell(edge.id)
+        const source = model.getCell(edge.source)
+        const target = model.getCell(edge.target)
+
+        if (!source || !target) continue
+
+        const style = getEdgeStyle(edge)
+
+        if (!existingEdge) {
+          graph.insertEdge(parent, edge.id, '', source, target, style)
+          continue
+        }
+
+        if (!existingEdge.isEdge()) continue
+
+        model.setStyle(existingEdge, style)
+      }
+
+      // Remove missing edges
+      const edges = graph.getChildEdges(parent)
+      const edgesToRemove = edges.filter((e) => {
+        const id = e.id
+        return id ? !edgeIds.has(id) : false
+      })
+
+      if (edgesToRemove.length > 0) {
+        graph.removeCells(edgesToRemove, true)
+      }
+    } finally {
+      model.endUpdate()
+      isApplyingStoreRef.current = false
+    }
+  }, [diagram.nodes, diagram.edges])
+
+  // Apply selection from store
+  useEffect(() => {
+    const graph = graphRef.current
+    if (!graph) return
+
+    const model = graph.getDataModel()
+    const ids = diagram.selection.cells
+
+    isApplyingStoreRef.current = true
+    try {
+      if (ids.length === 0) {
+        graph.clearSelection()
+        return
+      }
+
+      const cells = ids
+        .map((id) => model.getCell(id))
+        .filter((cell): cell is Cell => !!cell)
+
+      graph.setSelectionCells(cells)
+    } finally {
+      isApplyingStoreRef.current = false
+    }
+  }, [diagram.selection.cells])
 
   return (
     <div className={cn('graph-workspace', className)}>
       <div
         ref={containerRef}
-        className="graph-canvas w-full h-full"
-        style={{
-          backgroundColor: 'hsl(var(--graph-workspace))',
-        }}
+        className={cn(
+          'graph-canvas w-full h-full',
+          diagram.settings.showGrid && 'graph-grid',
+          cursorClass
+        )}
       />
     </div>
   )
