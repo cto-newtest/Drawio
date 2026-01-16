@@ -130,6 +130,47 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     graph.setCellsMovable(true)
     graph.setHtmlLabels(true)
 
+    // Configure graph for orthogonal edge routing (corner-to-corner)
+    graph.getAllConnectionConstraints = (terminal) => {
+      if (terminal != null) {
+        const cell = terminal.cell
+        if (cell != null && cell.isVertex()) {
+          return [
+            new ConnectionConstraint(new Point(0, 0), true), // Top-left
+            new ConnectionConstraint(new Point(0.5, 0), true), // Top-center
+            new ConnectionConstraint(new Point(1, 0), true), // Top-right
+            new ConnectionConstraint(new Point(0, 0.5), true), // Middle-left
+            new ConnectionConstraint(new Point(0.5, 0.5), true), // Center
+            new ConnectionConstraint(new Point(1, 0.5), true), // Middle-right
+            new ConnectionConstraint(new Point(0, 1), true), // Bottom-left
+            new ConnectionConstraint(new Point(0.5, 1), true), // Bottom-center
+            new ConnectionConstraint(new Point(1, 1), true), // Bottom-right
+          ]
+        }
+      }
+      return null
+    }
+
+    // Configure edge to use the closest constraint point
+    graph.getConnectionConstraint = (edge, terminal, source) => {
+      const constraints = graph.getAllConnectionConstraints(terminal)
+      if (constraints && constraints.length > 0) {
+        // Return the first constraint (closest corner will be selected by maxGraph)
+        return constraints[0]
+      }
+      return null
+    }
+
+    // Set default edge style to ensure orthogonal routing
+    const model = graph.getDataModel()
+    model.getEdgeStyle = () => {
+      return {
+        endArrow: constants.ARROW.BLOCK,
+        edgeStyle: constants.EDGESTYLE.ORTHOGONAL,
+        rounded: true,
+      }
+    }
+
     // Rubberband selection
     // eslint-disable-next-line no-new
     new RubberBandHandler(graph)
@@ -231,18 +272,22 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       const store = useGraphStore.getState()
 
       for (const cell of cells) {
-        if (!cell.isVertex()) continue
+        if (cell.isVertex()) {
+          const id = cell.id
+          if (!id) continue
 
-        const id = cell.id
-        if (!id) continue
+          const geo = cell.getGeometry()
+          if (!geo) continue
 
-        const geo = cell.getGeometry()
-        if (!geo) continue
-
-        store.updateNode(id, {
-          x: geo.x + geo.width / 2,
-          y: geo.y + geo.height / 2,
-        })
+          store.updateNode(id, {
+            x: geo.x + geo.width / 2,
+            y: geo.y + geo.height / 2,
+          })
+        } else if (cell.isEdge()) {
+          // Edge geometry changes when nodes move or when edge control points are modified
+          // The edge geometry is automatically updated by maxGraph when connected nodes move
+          // We just need to save history for edge movements
+        }
       }
       store.saveHistory()
     })
@@ -306,6 +351,32 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       store.saveHistory()
     })
 
+    // Handle edge control point changes
+    graph.getDataModel().addListener(InternalEvent.CHANGE, (_sender: any, evt: any) => {
+      if (isApplyingStoreRef.current) return
+
+      const changes = evt.getProperty('changes') as any[] | undefined
+      if (!changes) return
+
+      const store = useGraphStore.getState()
+      const model = graph.getDataModel()
+      let hasEdgeChanges = false
+
+      for (const change of changes) {
+        const cell = change.cell as Cell | undefined
+        if (!cell) continue
+
+        if (cell.isEdge()) {
+          hasEdgeChanges = true
+          break
+        }
+      }
+
+      if (hasEdgeChanges) {
+        store.saveHistory()
+      }
+    })
+
     // Sync viewport (scale & translate) -> store
     graph.getView().addListener(InternalEvent.SCALE_AND_TRANSLATE, (_sender: any, evt: any) => {
       if (isApplyingStoreRef.current) return
@@ -335,30 +406,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
 
     graph.setConnectable(isEdgeTool)
     graph.setCellsResizable(!isEdgeTool)
-
-    if (isEdgeTool) {
-      graph.getAllConnectionConstraints = (terminal) => {
-        if (terminal != null) {
-          const cell = terminal.cell
-          if (cell != null && cell.isVertex()) {
-            return [
-              new ConnectionConstraint(new Point(0, 0), true), // Top-left
-              new ConnectionConstraint(new Point(0.5, 0), true), // Top-center
-              new ConnectionConstraint(new Point(1, 0), true), // Top-right
-              new ConnectionConstraint(new Point(0, 0.5), true), // Middle-left
-              new ConnectionConstraint(new Point(0.5, 0.5), true), // Center
-              new ConnectionConstraint(new Point(1, 0.5), true), // Middle-right
-              new ConnectionConstraint(new Point(0, 1), true), // Bottom-left
-              new ConnectionConstraint(new Point(0.5, 1), true), // Bottom-center
-              new ConnectionConstraint(new Point(1, 1), true), // Bottom-right
-            ]
-          }
-        }
-        return null
-      }
-    } else {
-      graph.getAllConnectionConstraints = () => null
-    }
   }, [selectedTool])
 
   // Keyboard shortcuts and wheel zoom
@@ -370,15 +417,28 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
         return
       }
 
+      const store = useGraphStore.getState()
+
+      // Ctrl+Z or Cmd+Z for undo
+      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+        event.preventDefault()
+        event.stopPropagation()
+        store.undo()
+      }
+      // Ctrl+Y or Cmd+Y or Ctrl+Shift+Z for redo
+      else if ((event.ctrlKey || event.metaKey) && (event.key === 'y' || (event.key === 'z' && event.shiftKey))) {
+        event.preventDefault()
+        event.stopPropagation()
+        store.redo()
+      }
       // Ctrl+C or Cmd+C for copy
-      if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+      else if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
         event.preventDefault()
         copyCells()
       }
       // Delete key to delete selected cells
       else if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault()
-        const store = useGraphStore.getState()
         const selectedIds = store.diagram.selection.cells
         
         selectedIds.forEach(id => {
@@ -419,8 +479,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       store.setViewport({ scale: newScale })
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    
+    // Use capture phase for keyboard to handle shortcuts before other handlers
+    window.addEventListener('keydown', handleKeyDown, true)
+
     // Add wheel listener to the container for better zoom experience
     const container = containerRef.current
     if (container) {
@@ -428,12 +489,87 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     }
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keydown', handleKeyDown, true)
       if (container) {
         container.removeEventListener('wheel', handleWheel)
       }
     }
   }, [copyCells])
+
+  // Middle mouse button pan
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    let isPanning = false
+    let startX = 0
+    let startY = 0
+    let initialTranslateX = 0
+    let initialTranslateY = 0
+
+    const handleMouseDown = (e: MouseEvent) => {
+      // Check if it's middle mouse button (button 1)
+      if (e.button === 1) {
+        e.preventDefault()
+        isPanning = true
+        startX = e.clientX
+        startY = e.clientY
+
+        const store = useGraphStore.getState()
+        initialTranslateX = store.diagram.viewport.translateX
+        initialTranslateY = store.diagram.viewport.translateY
+
+        container.style.cursor = 'grabbing'
+      }
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isPanning) return
+
+      e.preventDefault()
+
+      const dx = e.clientX - startX
+      const dy = e.clientY - startY
+
+      const store = useGraphStore.getState()
+      const currentScale = store.diagram.viewport.scale
+
+      // Adjust for scale when panning
+      store.setViewport({
+        translateX: initialTranslateX + dx / currentScale,
+        translateY: initialTranslateY + dy / currentScale,
+      })
+    }
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 1 || isPanning) {
+        isPanning = false
+        container.style.cursor = ''
+      }
+    }
+
+    const handleContextMenu = (e: MouseEvent) => {
+      // Prevent context menu on middle mouse button
+      if (e.button === 2) {
+        const lastMouseEvent = window.event as MouseEvent
+        if (lastMouseEvent && lastMouseEvent.button === 1) {
+          e.preventDefault()
+        }
+      }
+    }
+
+    container.addEventListener('mousedown', handleMouseDown)
+    container.addEventListener('mousemove', handleMouseMove)
+    container.addEventListener('mouseup', handleMouseUp)
+    container.addEventListener('contextmenu', handleContextMenu)
+
+    return () => {
+      container.removeEventListener('mousedown', handleMouseDown)
+      container.removeEventListener('mousemove', handleMouseMove)
+      container.removeEventListener('mouseup', handleMouseUp)
+      container.removeEventListener('contextmenu', handleContextMenu)
+    }
+  }, [])
 
   // Apply grid settings
   useEffect(() => {
