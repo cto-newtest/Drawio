@@ -101,8 +101,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
   const { 
     diagram, 
     selectedTool, 
-    undo, 
-    redo, 
     copyCells 
   } = useGraphStore()
 
@@ -129,12 +127,30 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     graph.setCellsResizable(true)
     graph.setCellsMovable(true)
     graph.setHtmlLabels(true)
+    
+    // Preview colors (connection preview, move preview) should stay visible in both themes.
+    // Using CSS variables lets the browser resolve the final color when theme changes.
+    const anyGraph = graph as any
+    const previewColor = 'hsl(var(--primary))'
+    const invalidColor = 'hsl(var(--destructive))'
 
-    // Configure graph for orthogonal edge routing (corner-to-corner)
+    if (anyGraph.connectionHandler) {
+      anyGraph.connectionHandler.previewColor = previewColor
+      anyGraph.connectionHandler.validColor = previewColor
+      anyGraph.connectionHandler.invalidColor = invalidColor
+      anyGraph.connectionHandler.setCreateTarget?.(false)
+    }
+
+    if (anyGraph.graphHandler) {
+      anyGraph.graphHandler.previewColor = previewColor
+    }
+
+    // Configure graph for orthogonal edge routing with corner-to-corner connections
     graph.getAllConnectionConstraints = (terminal) => {
       if (terminal != null) {
         const cell = terminal.cell
         if (cell != null && cell.isVertex()) {
+          // Return 9 connection points: 4 corners + 4 edges + center
           return [
             new ConnectionConstraint(new Point(0, 0), true), // Top-left
             new ConnectionConstraint(new Point(0.5, 0), true), // Top-center
@@ -151,24 +167,48 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       return null
     }
 
-    // Configure edge to use the closest constraint point
-    graph.getConnectionConstraint = (edge, terminal, source) => {
-      const constraints = graph.getAllConnectionConstraints(terminal)
-      if (constraints && constraints.length > 0) {
-        // Return the first constraint (closest corner will be selected by maxGraph)
+    // Select the closest connection constraint (corners/edges/center)
+    const baseGetConnectionConstraint = graph.getConnectionConstraint.bind(graph)
+    graph.getConnectionConstraint = (edgeState, terminalState, source) => {
+      const baseConstraint = baseGetConnectionConstraint(edgeState, terminalState, source)
+
+      // If a constraint is already defined (eg. via edge style), keep it.
+      if (baseConstraint?.point) {
+        return baseConstraint
+      }
+
+      const constraints = graph.getAllConnectionConstraints(terminalState, source)
+      if (!terminalState || !constraints || constraints.length === 0) {
+        return baseConstraint
+      }
+
+      const otherState = source ? edgeState.visibleTargetState : edgeState.visibleSourceState
+      const ref = otherState
+        ? new Point(otherState.x + otherState.width / 2, otherState.y + otherState.height / 2)
+        : null
+
+      if (!ref) {
         return constraints[0]
       }
-      return null
-    }
 
-    // Set default edge style to ensure orthogonal routing
-    const model = graph.getDataModel()
-    model.getEdgeStyle = () => {
-      return {
-        endArrow: constants.ARROW.BLOCK,
-        edgeStyle: constants.EDGESTYLE.ORTHOGONAL,
-        rounded: true,
+      let best = constraints[0]
+      let bestDist = Number.POSITIVE_INFINITY
+
+      for (const c of constraints) {
+        const pt = graph.getConnectionPoint(terminalState, c, false)
+        if (!pt) continue
+
+        const dx = pt.x - ref.x
+        const dy = pt.y - ref.y
+        const dist = dx * dx + dy * dy
+
+        if (dist < bestDist) {
+          bestDist = dist
+          best = c
+        }
       }
+
+      return best
     }
 
     // Rubberband selection
@@ -309,19 +349,25 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       if (isApplyingStoreRef.current) return
 
       const edge = evt.getProperty('cell') as Cell
-      if (edge && edge.isEdge()) {
-        const source = edge.getTerminal(true)
-        const target = edge.getTerminal(false)
-        if (source && target) {
-          const store = useGraphStore.getState()
-          store.addEdge({
-            source: source.id as string,
-            target: target.id as string,
-            style: store.selectedTool === 'add-line' ? { endArrow: 'none' } : {},
-          })
-          // Remove from graph model since store will re-add it
-          graph.getDataModel().remove(edge)
-        }
+      if (!edge || !edge.isEdge()) return
+
+      const source = edge.getTerminal(true)
+      const target = edge.getTerminal(false)
+      if (!source || !target) return
+
+      const store = useGraphStore.getState()
+      store.addEdge({
+        source: source.id as string,
+        target: target.id as string,
+        style: store.selectedTool === 'add-line' ? { endArrow: 'none' } : {},
+      })
+
+      // Remove the temporary edge created by maxGraph; store will re-add it.
+      isApplyingStoreRef.current = true
+      try {
+        graph.getDataModel().remove(edge)
+      } finally {
+        isApplyingStoreRef.current = false
       }
     })
 
@@ -349,32 +395,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
         })
       }
       store.saveHistory()
-    })
-
-    // Handle edge control point changes
-    graph.getDataModel().addListener(InternalEvent.CHANGE, (_sender: any, evt: any) => {
-      if (isApplyingStoreRef.current) return
-
-      const changes = evt.getProperty('changes') as any[] | undefined
-      if (!changes) return
-
-      const store = useGraphStore.getState()
-      const model = graph.getDataModel()
-      let hasEdgeChanges = false
-
-      for (const change of changes) {
-        const cell = change.cell as Cell | undefined
-        if (!cell) continue
-
-        if (cell.isEdge()) {
-          hasEdgeChanges = true
-          break
-        }
-      }
-
-      if (hasEdgeChanges) {
-        store.saveHistory()
-      }
     })
 
     // Sync viewport (scale & translate) -> store
@@ -452,6 +472,23 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
           }
         })
       }
+      // Ctrl+Plus or Cmd+Plus for zoom in
+      else if ((event.ctrlKey || event.metaKey) && (event.key === '=' || event.key === '+')) {
+        event.preventDefault()
+        const newScale = Math.min(store.diagram.viewport.scale * 1.2, 5)
+        store.setViewport({ scale: newScale })
+      }
+      // Ctrl+Minus or Cmd+Minus for zoom out
+      else if ((event.ctrlKey || event.metaKey) && event.key === '-') {
+        event.preventDefault()
+        const newScale = Math.max(store.diagram.viewport.scale / 1.2, 0.1)
+        store.setViewport({ scale: newScale })
+      }
+      // Ctrl+0 or Cmd+0 for reset zoom
+      else if ((event.ctrlKey || event.metaKey) && event.key === '0') {
+        event.preventDefault()
+        store.setViewport({ scale: 1, translateX: 0, translateY: 0 })
+      }
     }
 
     const handleWheel = (event: WheelEvent) => {
@@ -507,20 +544,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     let initialTranslateX = 0
     let initialTranslateY = 0
 
-    const handleMouseDown = (e: MouseEvent) => {
-      // Check if it's middle mouse button (button 1)
-      if (e.button === 1) {
-        e.preventDefault()
-        isPanning = true
-        startX = e.clientX
-        startY = e.clientY
-
-        const store = useGraphStore.getState()
-        initialTranslateX = store.diagram.viewport.translateX
-        initialTranslateY = store.diagram.viewport.translateY
-
-        container.style.cursor = 'grabbing'
-      }
+    const stopPanning = () => {
+      if (!isPanning) return
+      isPanning = false
+      container.style.cursor = ''
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
     }
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -534,7 +563,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       const store = useGraphStore.getState()
       const currentScale = store.diagram.viewport.scale
 
-      // Adjust for scale when panning
       store.setViewport({
         translateX: initialTranslateX + dx / currentScale,
         translateY: initialTranslateY + dy / currentScale,
@@ -542,32 +570,37 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     }
 
     const handleMouseUp = (e: MouseEvent) => {
-      if (e.button === 1 || isPanning) {
-        isPanning = false
-        container.style.cursor = ''
+      if (e.button === 1) {
+        e.preventDefault()
       }
+      stopPanning()
     }
 
-    const handleContextMenu = (e: MouseEvent) => {
-      // Prevent context menu on middle mouse button
-      if (e.button === 2) {
-        const lastMouseEvent = window.event as MouseEvent
-        if (lastMouseEvent && lastMouseEvent.button === 1) {
-          e.preventDefault()
-        }
-      }
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button !== 1) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      isPanning = true
+      startX = e.clientX
+      startY = e.clientY
+
+      const store = useGraphStore.getState()
+      initialTranslateX = store.diagram.viewport.translateX
+      initialTranslateY = store.diagram.viewport.translateY
+
+      container.style.cursor = 'grabbing'
+
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
     }
 
     container.addEventListener('mousedown', handleMouseDown)
-    container.addEventListener('mousemove', handleMouseMove)
-    container.addEventListener('mouseup', handleMouseUp)
-    container.addEventListener('contextmenu', handleContextMenu)
 
     return () => {
+      stopPanning()
       container.removeEventListener('mousedown', handleMouseDown)
-      container.removeEventListener('mousemove', handleMouseMove)
-      container.removeEventListener('mouseup', handleMouseUp)
-      container.removeEventListener('contextmenu', handleContextMenu)
     }
   }, [])
 
