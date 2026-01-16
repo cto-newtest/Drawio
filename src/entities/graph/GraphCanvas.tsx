@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import cytoscape, { Core, NodeSingular, EdgeSingular } from 'cytoscape'
+import cytoscape from 'cytoscape'
 import { useGraphStore } from '@/shared/store/graphStore'
 import { cn } from '@/shared/lib/utils'
 
@@ -9,7 +9,7 @@ interface GraphCanvasProps {
 
 export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
   const containerRef = useRef<HTMLDivElement>(null)
-  const cyRef = useRef<Core | null>(null)
+  const cyRef = useRef<any>(null)
   const [isInitialized, setIsInitialized] = useState(false)
   
   const {
@@ -36,7 +36,65 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       const cy = cytoscape({
         container,
         elements: [],
-        style: getGraphStyles(),
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'background-color': 'hsl(var(--graph-node-default))',
+              'border-color': 'hsl(var(--border))',
+              'border-width': 1,
+              'border-style': 'solid',
+              'label': 'data(label)',
+              'text-valign': 'center',
+              'text-halign': 'center',
+              'font-family': 'Inter, sans-serif',
+              'font-size': 12,
+              'color': 'hsl(var(--foreground))',
+              'width': 'data(width)',
+              'height': 'data(height)',
+            },
+          },
+          {
+            selector: 'node:hover',
+            style: {
+              'background-color': 'hsl(var(--graph-node-hover))',
+            },
+          },
+          {
+            selector: 'node:selected',
+            style: {
+              'background-color': 'hsl(var(--graph-node-selected))',
+              'border-color': 'hsl(var(--graph-node-selected))',
+              'border-width': 2,
+            },
+          },
+          {
+            selector: 'edge',
+            style: {
+              'width': 1,
+              'line-color': 'hsl(var(--graph-edge-default))',
+              'target-arrow-color': 'hsl(var(--graph-edge-default))',
+              'target-arrow-shape': 'triangle',
+              'curve-style': 'bezier',
+            },
+          },
+          {
+            selector: 'edge:hover',
+            style: {
+              'width': 2,
+              'line-color': 'hsl(var(--graph-edge-hover))',
+              'target-arrow-color': 'hsl(var(--graph-edge-hover))',
+            },
+          },
+          {
+            selector: 'edge:selected',
+            style: {
+              'width': 2,
+              'line-color': 'hsl(var(--graph-edge-selected))',
+              'target-arrow-color': 'hsl(var(--graph-edge-selected))',
+            },
+          },
+        ],
         layout: { name: 'preset' },
         wheelSensitivity: 0.1,
         userZoomingEnabled: true,
@@ -48,7 +106,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       })
 
       cyRef.current = cy
-      setupEventHandlers(cy)
       setIsInitialized(true)
 
       // Handle resize
@@ -71,136 +128,20 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     }
   }, [isInitialized])
 
-  // Get graph styles
-  const getGraphStyles = () => [
-    {
-      selector: 'node',
-      style: {
-        'background-color': 'hsl(var(--graph-node-default))',
-        'border-color': 'hsl(var(--border))',
-        'border-width': 1,
-        'border-style': 'solid',
-        'label': 'data(label)',
-        'text-valign': 'center',
-        'text-halign': 'center',
-        'font-family': 'Inter, sans-serif',
-        'font-size': 12,
-        'color': 'hsl(var(--foreground))',
-        'text-outline-width': 0,
-        'width': 'data(width)',
-        'height': 'data(height)',
-        'shape': 'data(shape)',
-        'corner-radius': 'data(cornerRadius)',
-        'shadow-blur': 'data(shadowBlur)',
-        'shadow-opacity': 'data(shadowOpacity)',
-        'shadow-color': 'data(shadowColor)',
-        'shadow-offset-x': 'data(shadowOffsetX)',
-        'shadow-offset-y': 'data(shadowOffsetY)',
-        'opacity': 'data(opacity)',
-        'rotation': 'data(rotation)',
-        'padding': 'data(padding)',
-        'text-wrap': 'data(textWrap)',
-        'text-max-width': 'data(textMaxWidth)',
-        'text-outline-color': 'data(textOutlineColor)',
-        'text-outline-width': 'data(textOutlineWidth)',
-        'font-weight': 'data(fontWeight)',
-        'font-style': 'data(fontStyle)',
-        'text-decoration': 'data(textDecoration)',
-        'text-transform': 'data(textTransform)',
-        'line-height': 'data(lineHeight)',
-        'text-margin-y': 'data(textMarginY)',
-        'text-margin-x': 'data(textMarginX)',
-      },
-    },
-    {
-      selector: 'node:hover',
-      style: {
-        'background-color': 'hsl(var(--graph-node-hover))',
-      },
-    },
-    {
-      selector: 'node:selected',
-      style: {
-        'background-color': 'hsl(var(--graph-node-selected))',
-        'border-color': 'hsl(var(--graph-node-selected))',
-        'border-width': 2,
-        'text-outline-color': 'hsl(var(--primary-foreground))',
-        'text-outline-width': 2,
-      },
-    },
-    {
-      selector: 'edge',
-      style: {
-        'width': 1,
-        'line-color': 'hsl(var(--graph-edge-default))',
-        'target-arrow-color': 'hsl(var(--graph-edge-default))',
-        'target-arrow-shape': 'data(arrowShape)',
-        'curve-style': 'data(curveStyle)',
-        'label': 'data(label)',
-        'font-family': 'Inter, sans-serif',
-        'font-size': 10,
-        'color': 'hsl(var(--foreground))',
-        'text-outline-width': 0,
-        'text-background-opacity': 'data(textBackgroundOpacity)',
-        'text-background-color': 'data(textBackgroundColor)',
-        'text-background-shape': 'data(textBackgroundShape)',
-        'line-style': 'data(lineStyle)',
-        'line-cap': 'data(lineCap)',
-        'line-join': 'data(lineJoin)',
-        'opacity': 'data(opacity)',
-        'z-index': 'data(zIndex)',
-        'line-gradient-stop-colors': 'data(lineGradientStopColors)',
-        'line-gradient-stop-positions': 'data(lineGradientStopPositions)',
-        'control-point-weight': 'data(controlPointWeight)',
-        'segment-distances': 'data(segmentDistances)',
-        'segment-weights': 'data(segmentWeights)',
-        'taxi-direction': 'data(taxiDirection)',
-        'taxi-turn': 'data(taxiTurn)',
-        'taxi-turn-min-distance': 'data(taxiTurnMinDistance)',
-        'haystack-radius': 'data(haystackRadius)',
-        'edge-distances': 'data(edgeDistances)',
-        'arrow-scale': 'data(arrowScale)',
-      },
-    },
-    {
-      selector: 'edge:hover',
-      style: {
-        'width': 2,
-        'line-color': 'hsl(var(--graph-edge-hover))',
-        'target-arrow-color': 'hsl(var(--graph-edge-hover))',
-      },
-    },
-    {
-      selector: 'edge:selected',
-      style: {
-        'width': 2,
-        'line-color': 'hsl(var(--graph-edge-selected))',
-        'target-arrow-color': 'hsl(var(--graph-edge-selected))',
-      },
-    },
-    {
-      selector: '.grid',
-      style: {
-        'background-image': 'linear-gradient(to right, hsl(var(--graph-grid)) 1px, transparent 1px), linear-gradient(to bottom, hsl(var(--graph-grid)) 1px, transparent 1px)',
-        'background-size': `${diagram.settings.gridSize}px ${diagram.settings.gridSize}px`,
-      },
-    },
-  ]
-
   // Set up event handlers
-  const setupEventHandlers = (cy: Core) => {
+  const setupEventHandlers = (cy: any) => {
     // Selection events
-    cy.on('select', 'node', (event) => {
+    cy.on('select', 'node', (event: any) => {
       const node = event.target
       selectCells([node.id()])
     })
 
-    cy.on('select', 'edge', (event) => {
+    cy.on('select', 'edge', (event: any) => {
       const edge = event.target
       selectCells([edge.id()])
     })
 
-    cy.on('unselect', (event) => {
+    cy.on('unselect', (event: any) => {
       const selected = cy.$(':selected')
       if (selected.length === 0) {
         clearSelection()
@@ -208,7 +149,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     })
 
     // Drag events
-    cy.on('dragfree', 'node', (event) => {
+    cy.on('dragfree', 'node', (event: any) => {
       const node = event.target
       updateNode(node.id(), {
         x: node.position().x,
@@ -217,7 +158,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     })
 
     // Tap events for adding nodes
-    cy.on('tap', (event) => {
+    cy.on('tap', (event: any) => {
       if (event.target === cy && selectedTool === 'add-node') {
         const point = event.position
         const nodeId = addNode({
@@ -271,27 +212,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
           label: node.value,
           width: node.width,
           height: node.height,
-          shape: getShapeFromStyle(node.style),
-          cornerRadius: node.style?.cornerRadius || 6,
-          shadowBlur: node.style?.shadowBlur || 0,
-          shadowOpacity: node.style?.shadowOpacity || 0,
-          shadowColor: node.style?.shadowColor || 'transparent',
-          shadowOffsetX: node.style?.shadowOffsetX || 0,
-          shadowOffsetY: node.style?.shadowOffsetY || 0,
-          opacity: node.style?.opacity || 1,
-          rotation: node.style?.rotation || 0,
-          padding: node.style?.padding || 8,
-          textWrap: node.style?.textWrap || 'wrap',
-          textMaxWidth: node.style?.textMaxWidth || 200,
-          textOutlineColor: node.style?.textOutlineColor || 'transparent',
-          textOutlineWidth: node.style?.textOutlineWidth || 0,
-          fontWeight: node.style?.fontWeight || 'normal',
-          fontStyle: node.style?.fontStyle || 'normal',
-          textDecoration: node.style?.textDecoration || 'none',
-          textTransform: node.style?.textTransform || 'none',
-          lineHeight: node.style?.lineHeight || 1,
-          textMarginY: node.style?.textMarginY || 0,
-          textMarginX: node.style?.textMarginX || 0,
         }
         
         element = cy.add({
@@ -319,26 +239,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       
       if (element.empty()) {
         // Create new edge
-        const edgeData = {
-          id: edge.id,
-          label: edge.style?.label || '',
-          arrowShape: edge.style?.arrowShape || 'triangle',
-          curveStyle: edge.style?.curveStyle || 'bezier',
-          textBackgroundOpacity: edge.style?.textBackgroundOpacity || 0,
-          textBackgroundColor: edge.style?.textBackgroundColor || 'transparent',
-          textBackgroundShape: edge.style?.textBackgroundShape || 'round-rectangle',
-          lineStyle: edge.style?.lineStyle || 'solid',
-          lineCap: edge.style?.lineCap || 'round',
-          lineJoin: edge.style?.lineJoin || 'round',
-          opacity: edge.style?.opacity || 1,
-          zIndex: edge.style?.zIndex || 0,
-          arrowScale: edge.style?.arrowScale || 1,
-        }
-        
         element = cy.add({
           group: 'edges',
           data: {
-            ...edgeData,
+            id: edge.id,
             source: edge.source,
             target: edge.target,
           },
@@ -356,13 +260,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     })
 
     // Remove deleted elements
-    cy.nodes().forEach((node) => {
+    cy.nodes().forEach((node: any) => {
       if (!existingNodeIds.has(node.id())) {
         node.remove()
       }
     })
 
-    cy.edges().forEach((edge) => {
+    cy.edges().forEach((edge: any) => {
       if (!existingEdgeIds.has(edge.id())) {
         edge.remove()
       }
@@ -389,43 +293,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       x: diagram.viewport.translateX,
       y: diagram.viewport.translateY,
     })
-
-    // Update grid visibility
-    if (diagram.settings.showGrid) {
-      cy.style().selector('.grid').style({
-        'background-image': `linear-gradient(to right, hsl(var(--graph-grid)) 1px, transparent 1px), linear-gradient(to bottom, hsl(var(--graph-grid)) 1px, transparent 1px)`,
-        'background-size': `${diagram.settings.gridSize}px ${diagram.settings.gridSize}px`,
-      }).update()
-    } else {
-      cy.style().selector('.grid').style({
-        'background-image': 'none',
-      }).update()
-    }
   }, [diagram, isInitialized])
-
-  // Helper function to convert style to cytoscape shape
-  const getShapeFromStyle = (style: Record<string, any> = {}) => {
-    switch (style.shape) {
-      case 'ellipse':
-      case 'circle':
-        return 'ellipse'
-      case 'diamond':
-      case 'rhombus':
-        return 'diamond'
-      case 'triangle':
-        return 'triangle'
-      case 'hexagon':
-        return 'hexagon'
-      case 'octagon':
-        return 'octagon'
-      case 'star':
-        return 'star'
-      case 'polygon':
-        return 'polygon'
-      default:
-        return 'rectangle'
-    }
-  }
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -437,11 +305,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
         if (diagram.selection.cells.length > 0) {
           const cy = cyRef.current
           const selected = cy.$(':selected')
-          selected.forEach((element) => {
+          selected.forEach((element: any) => {
             if (element.isNode()) {
               deleteNode(element.id())
-            } else if (element.isEdge()) {
-              // deleteEdge(element.id())
             }
           })
         }
@@ -462,10 +328,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
           case '0':
             event.preventDefault()
             resetZoom()
-            break
-          case 'a':
-            event.preventDefault()
-            // selectAll()
             break
         }
       }
