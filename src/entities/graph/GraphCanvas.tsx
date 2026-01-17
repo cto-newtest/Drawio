@@ -98,10 +98,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
   const isApplyingStoreRef = useRef(false)
   const isDraggingRef = useRef(false)
 
-  const { 
-    diagram, 
-    selectedTool, 
-    copyCells 
+  const {
+    diagram,
+    selectedTool,
+    copyCells,
+    pasteCells,
+    cutCells
   } = useGraphStore()
 
   const cursorClass = useMemo(() => {
@@ -341,6 +343,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     graph.addListener(InternalEvent.MOVE_END, () => {
       setTimeout(() => {
         isDraggingRef.current = false
+        // Force a re-sync after drag ends to ensure edges are properly updated
+        const graph = graphRef.current
+        if (graph) {
+          // Trigger a layout update to refresh edge connections
+          graph.refresh()
+        }
       }, 100)
     })
 
@@ -460,17 +468,49 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       else if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault()
         const selectedIds = store.diagram.selection.cells
-        
-        selectedIds.forEach(id => {
+
+        if (selectedIds.length === 0) return
+
+        // Separate vertex and edge IDs
+        const vertexIds = selectedIds.filter(id => {
           const cell = store.getCellById(id)
-          if (cell) {
-            if ('vertex' in cell && cell.vertex) {
-              store.deleteNode(id)
-            } else if ('edge' in cell && cell.edge) {
-              store.deleteEdge(id)
-            }
-          }
+          return cell && 'vertex' in cell && cell.vertex
         })
+        const edgeIds = selectedIds.filter(id => {
+          const cell = store.getCellById(id)
+          return cell && 'edge' in cell && cell.edge
+        })
+
+        // Delete edges first (including those connected to vertices being deleted)
+        const edgesToDelete = new Set([...edgeIds])
+        vertexIds.forEach(vid => {
+          store.diagram.edges.forEach(edge => {
+            if (edge.source === vid || edge.target === vid) {
+              edgesToDelete.add(edge.id)
+            }
+          })
+        })
+
+        // Delete all edges first, then all vertices
+        edgesToDelete.forEach(edgeId => {
+          store.deleteEdge(edgeId)
+        })
+
+        vertexIds.forEach(vertexId => {
+          store.deleteNode(vertexId)
+        })
+      }
+      // Ctrl+V or Cmd+V for paste
+      else if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+        event.preventDefault()
+        event.stopPropagation()
+        pasteCells()
+      }
+      // Ctrl+X or Cmd+X for cut
+      else if ((event.ctrlKey || event.metaKey) && event.key === 'x') {
+        event.preventDefault()
+        event.stopPropagation()
+        cutCells()
       }
       // Ctrl+Plus or Cmd+Plus for zoom in
       else if ((event.ctrlKey || event.metaKey) && (event.key === '=' || event.key === '+')) {
@@ -531,7 +571,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
         container.removeEventListener('wheel', handleWheel)
       }
     }
-  }, [copyCells])
+  }, [copyCells, pasteCells, cutCells])
 
   // Middle mouse button pan
   useEffect(() => {
@@ -633,6 +673,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     const graph = graphRef.current
     if (!graph) return
 
+    // Skip re-sync during drag operations to prevent edges from disappearing
+    if (isDraggingRef.current) return
+
     const model = graph.getDataModel()
     const parent = graph.getDefaultParent()
 
@@ -678,7 +721,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
         if (cell.value !== node.value) {
           model.setValue(cell, node.value)
         }
-        
+
         model.setStyle(cell, style)
       }
 

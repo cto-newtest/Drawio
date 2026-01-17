@@ -93,6 +93,11 @@ interface HistoryState {
   selection: GraphSelection
 }
 
+interface ClipboardState {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
+
 interface GraphStore {
   // State
   diagram: GraphDiagram
@@ -101,6 +106,7 @@ interface GraphStore {
   error: string | null
   historyStack: HistoryState[]
   historyIndex: number
+  clipboard: ClipboardState | null
   
   // Actions
   // Node actions
@@ -119,6 +125,8 @@ interface GraphStore {
   clearSelection: () => void
   selectAll: () => void
   copyCells: () => void
+  pasteCells: () => void
+  cutCells: () => void
   
   // Viewport actions
   setViewport: (viewport: Partial<GraphViewport>) => void
@@ -240,6 +248,7 @@ export const useGraphStore = create<GraphStore>()(
         selection: { cells: [] },
       }],
       historyIndex: 0,
+      clipboard: null,
       
       // Node actions
       addNode: (node) => {
@@ -451,22 +460,42 @@ export const useGraphStore = create<GraphStore>()(
       copyCells: () => {
         const state = get()
         const selectedIds = state.diagram.selection.cells
-        
+
         if (selectedIds.length === 0) return
-        
+
         // Find selected nodes
-        const selectedNodes = state.diagram.nodes.filter(node => 
+        const selectedNodes = state.diagram.nodes.filter(node =>
           selectedIds.includes(node.id)
         )
-        
+
+        // Find selected edges
+        const selectedEdges = state.diagram.edges.filter(edge =>
+          selectedIds.includes(edge.id)
+        )
+
+        // Store selected nodes and edges in clipboard
+        set(() => ({
+          clipboard: {
+            nodes: JSON.parse(JSON.stringify(selectedNodes)),
+            edges: JSON.parse(JSON.stringify(selectedEdges)),
+          },
+        }))
+      },
+
+      pasteCells: () => {
+        const state = get()
+        const clipboard = state.clipboard
+
+        if (!clipboard || (clipboard.nodes.length === 0 && clipboard.edges.length === 0)) return
+
         // Create copies with new IDs and offset position
         const newNodes: GraphNode[] = []
         const idMap = new Map<string, string>() // old id -> new id
-        
-        selectedNodes.forEach(node => {
+
+        clipboard.nodes.forEach(node => {
           const newId = uuidv4()
           idMap.set(node.id, newId)
-          
+
           newNodes.push({
             ...node,
             id: newId,
@@ -474,19 +503,17 @@ export const useGraphStore = create<GraphStore>()(
             y: node.y + 20,
           })
         })
-        
+
         // Copy edges that connect copied nodes
-        const selectedEdges = state.diagram.edges.filter(edge =>
-          idMap.has(edge.source) && idMap.has(edge.target)
-        )
-        
-        const newEdges: GraphEdge[] = selectedEdges.map(edge => ({
-          ...edge,
-          id: uuidv4(),
-          source: idMap.get(edge.source)!,
-          target: idMap.get(edge.target)!,
-        }))
-        
+        const newEdges: GraphEdge[] = clipboard.edges
+          .filter(edge => idMap.has(edge.source) && idMap.has(edge.target))
+          .map(edge => ({
+            ...edge,
+            id: uuidv4(),
+            source: idMap.get(edge.source)!,
+            target: idMap.get(edge.target)!,
+          }))
+
         set((state) => ({
           diagram: {
             ...state.diagram,
@@ -494,7 +521,60 @@ export const useGraphStore = create<GraphStore>()(
             edges: [...state.diagram.edges, ...newEdges],
             selection: {
               ...state.diagram.selection,
-              cells: newNodes.map(n => n.id),
+              cells: [...newNodes.map(n => n.id), ...newEdges.map(e => e.id)],
+            },
+            metadata: {
+              ...state.diagram.metadata,
+              modified: new Date().toISOString(),
+            },
+            history: {
+              ...state.diagram.history,
+              canUndo: true,
+              canRedo: false,
+            },
+          },
+        }))
+
+        get().saveHistory()
+      },
+
+      cutCells: () => {
+        const state = get()
+        const selectedIds = state.diagram.selection.cells
+
+        if (selectedIds.length === 0) return
+
+        // Copy selected cells to clipboard first
+        state.copyCells()
+
+        // Separate vertex and edge IDs
+        const vertexIds = selectedIds.filter(id => {
+          const cell = state.getCellById(id)
+          return cell && 'vertex' in cell && cell.vertex
+        })
+        const edgeIds = selectedIds.filter(id => {
+          const cell = state.getCellById(id)
+          return cell && 'edge' in cell && cell.edge
+        })
+
+        // Delete edges first (including those connected to vertices being deleted)
+        const edgesToDelete = new Set([...edgeIds])
+        vertexIds.forEach(vid => {
+          state.diagram.edges.forEach(edge => {
+            if (edge.source === vid || edge.target === vid) {
+              edgesToDelete.add(edge.id)
+            }
+          })
+        })
+
+        set((state) => ({
+          diagram: {
+            ...state.diagram,
+            nodes: state.diagram.nodes.filter(node => !vertexIds.includes(node.id)),
+            edges: state.diagram.edges.filter(edge => !edgesToDelete.has(edge.id)),
+            selection: {
+              ...state.diagram.selection,
+              cells: [],
             },
             metadata: {
               ...state.diagram.metadata,
