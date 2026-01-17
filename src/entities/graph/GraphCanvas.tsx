@@ -462,6 +462,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       // Ctrl+C or Cmd+C for copy
       else if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
         event.preventDefault()
+        event.stopPropagation()
         copyCells()
       }
       // Delete key to delete selected cells
@@ -556,19 +557,37 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       store.setViewport({ scale: newScale })
     }
 
+    // Intercept keyboard shortcuts on the graph container to prevent maxGraph from handling them
+    const container = containerRef.current
+    const handleContainerKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === 'true') {
+        return
+      }
+
+      // Stop propagation for graph-specific shortcuts to prevent maxGraph from handling them
+      if ((event.ctrlKey || event.metaKey) && 
+          (event.key === 'z' || event.key === 'y' || event.key === 'c' || event.key === 'v' || event.key === 'x' || 
+           event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0')) {
+        event.stopPropagation()
+      }
+    }
+
     // Use capture phase for keyboard to handle shortcuts before other handlers
     window.addEventListener('keydown', handleKeyDown, true)
 
     // Add wheel listener to the container for better zoom experience
-    const container = containerRef.current
     if (container) {
       container.addEventListener('wheel', handleWheel, { passive: false })
+      // Add keydown listener on container to intercept shortcuts before maxGraph
+      container.addEventListener('keydown', handleContainerKeyDown, true)
     }
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true)
       if (container) {
         container.removeEventListener('wheel', handleWheel)
+        container.removeEventListener('keydown', handleContainerKeyDown, true)
       }
     }
   }, [copyCells, pasteCells, cutCells])
