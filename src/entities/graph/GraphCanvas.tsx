@@ -71,12 +71,13 @@ const getVertexStyle = (node: GraphNode): CellStyle => {
   return style
 }
 
-const getEdgeStyle = (edge: GraphEdge): CellStyle => {
+const getEdgeStyle = (edge: GraphEdge, tool: string): CellStyle => {
   const edgeStyle = edge.style ?? {}
 
   const style: CellStyle = {
     endArrow: constants.ARROW.BLOCK,
-    edgeStyle: constants.EDGESTYLE.ORTHOGONAL,
+    // Use different edge styles based on tool
+    edgeStyle: tool === 'add-line' ? constants.NONE : constants.EDGESTYLE.ORTHOGONAL,
     rounded: true,
   }
 
@@ -230,9 +231,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       const store = useGraphStore.getState()
       const tool = store.selectedTool
 
-      // If clicking on a cell with select tool, let the selection handler deal with it
+      // If clicking on a cell with select tool, handle selection properly
       if (cell) {
-        // Don't create new nodes if we're clicking on an existing cell
+        // If we're in select mode, allow selection of both nodes and edges
+        if (tool === 'select') {
+          // Let the default selection handler work
+          return
+        }
+        // Don't create new nodes if we're clicking on an existing cell in other modes
         return
       }
 
@@ -447,26 +453,27 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
 
       const store = useGraphStore.getState()
 
+      // Use event.code for layout-independent keyboard handling
       // Ctrl+Z or Cmd+Z for undo
-      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyZ' && !event.shiftKey) {
         event.preventDefault()
         event.stopPropagation()
         store.undo()
       }
       // Ctrl+Y or Cmd+Y or Ctrl+Shift+Z for redo
-      else if ((event.ctrlKey || event.metaKey) && (event.key === 'y' || (event.key === 'z' && event.shiftKey))) {
+      else if ((event.ctrlKey || event.metaKey) && (event.code === 'KeyY' || (event.code === 'KeyZ' && event.shiftKey))) {
         event.preventDefault()
         event.stopPropagation()
         store.redo()
       }
       // Ctrl+C or Cmd+C for copy
-      else if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+      else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyC') {
         event.preventDefault()
         event.stopPropagation()
         copyCells()
       }
       // Delete key to delete selected cells
-      else if (event.key === 'Delete' || event.key === 'Backspace') {
+      else if (event.code === 'Delete' || event.code === 'Backspace') {
         event.preventDefault()
         const selectedIds = store.diagram.selection.cells
 
@@ -502,31 +509,31 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
         })
       }
       // Ctrl+V or Cmd+V for paste
-      else if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+      else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyV') {
         event.preventDefault()
         event.stopPropagation()
         pasteCells()
       }
       // Ctrl+X or Cmd+X for cut
-      else if ((event.ctrlKey || event.metaKey) && event.key === 'x') {
+      else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyX') {
         event.preventDefault()
         event.stopPropagation()
         cutCells()
       }
       // Ctrl+Plus or Cmd+Plus for zoom in
-      else if ((event.ctrlKey || event.metaKey) && (event.key === '=' || event.key === '+')) {
+      else if ((event.ctrlKey || event.metaKey) && (event.code === 'Equal' || event.code === 'NumpadAdd')) {
         event.preventDefault()
         const newScale = Math.min(store.diagram.viewport.scale * 1.2, 5)
         store.setViewport({ scale: newScale })
       }
       // Ctrl+Minus or Cmd+Minus for zoom out
-      else if ((event.ctrlKey || event.metaKey) && event.key === '-') {
+      else if ((event.ctrlKey || event.metaKey) && (event.code === 'Minus' || event.code === 'NumpadSubtract')) {
         event.preventDefault()
         const newScale = Math.max(store.diagram.viewport.scale / 1.2, 0.1)
         store.setViewport({ scale: newScale })
       }
       // Ctrl+0 or Cmd+0 for reset zoom
-      else if ((event.ctrlKey || event.metaKey) && event.key === '0') {
+      else if ((event.ctrlKey || event.metaKey) && (event.code === 'Digit0' || event.code === 'Numpad0')) {
         event.preventDefault()
         store.setViewport({ scale: 1, translateX: 0, translateY: 0 })
       }
@@ -566,9 +573,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       }
 
       // Stop propagation for graph-specific shortcuts to prevent maxGraph from handling them
-      if ((event.ctrlKey || event.metaKey) && 
-          (event.key === 'z' || event.key === 'y' || event.key === 'c' || event.key === 'v' || event.key === 'x' || 
-           event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0')) {
+      if ((event.ctrlKey || event.metaKey) &&
+          (event.code === 'KeyZ' || event.code === 'KeyY' || event.code === 'KeyC' || event.code === 'KeyV' || event.code === 'KeyX' ||
+           event.code === 'Equal' || event.code === 'NumpadAdd' || event.code === 'Minus' || event.code === 'NumpadSubtract' ||
+           event.code === 'Digit0' || event.code === 'Numpad0')) {
         event.stopPropagation()
       }
     }
@@ -763,7 +771,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
 
         if (!source || !target) continue
 
-        const style = getEdgeStyle(edge)
+        const style = getEdgeStyle(edge, selectedTool)
 
         if (!existingEdge) {
           graph.insertEdge(parent, edge.id, '', source, target, style)
