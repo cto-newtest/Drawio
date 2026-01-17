@@ -867,7 +867,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
           cursorClass
         )}
       />
-      <style jsx global>{`
+      <style>{`
         .graph-canvas {
           cursor: default;
         }
