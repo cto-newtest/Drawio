@@ -162,8 +162,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       if (terminal != null) {
         const cell = terminal.cell
         if (cell != null && cell.isVertex()) {
-          // Return 4 connection points at sides (not corners) for cleaner orthogonal routing
+          // Return 8 connection points: 4 corners + 4 midpoints for draw.io-like connectivity
           return [
+            // Corner points
+            new ConnectionConstraint(new Point(0, 0), true), // Top-left
+            new ConnectionConstraint(new Point(1, 0), true), // Top-right
+            new ConnectionConstraint(new Point(1, 1), true), // Bottom-right
+            new ConnectionConstraint(new Point(0, 1), true), // Bottom-left
+            // Midpoint points
             new ConnectionConstraint(new Point(0.5, 0), true), // Top-center
             new ConnectionConstraint(new Point(1, 0.5), true), // Middle-right
             new ConnectionConstraint(new Point(0.5, 1), true), // Bottom-center
@@ -258,6 +264,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
             const cellId = cell.id as string
             if (cellId) {
               store.selectCells([cellId])
+              evt.consume()
             }
           }
           // Let the default selection handler work for vertices
@@ -725,7 +732,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     const graph = graphRef.current
     if (!graph) return
 
-    // Skip re-sync during drag operations to prevent edges from disappearing
+    // ABSOLUTELY CRITICAL: Skip re-sync during drag operations to prevent edges from disappearing
     if (isDraggingRef.current) return
 
     const model = graph.getDataModel()
@@ -738,7 +745,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       const nodeIds = new Set(diagram.nodes.map((n) => n.id))
       const edgeIds = new Set(diagram.edges.map((e) => e.id))
 
-      // Upsert nodes
+      // Upsert nodes - NEVER remove vertices during drag
+      const vertices = graph.getChildVertices(parent)
       for (const node of diagram.nodes) {
         const cell = model.getCell(node.id)
 
@@ -777,20 +785,19 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
         model.setStyle(cell, style)
       }
 
-      // Remove missing vertices
-      const vertices = graph.getChildVertices(parent)
+      // DON'T remove missing vertices during drag - this breaks edges!
       const verticesToRemove = vertices.filter((v) => {
         const id = v.id
         return id ? !nodeIds.has(id) : false
       })
-
-      if (verticesToRemove.length > 0) {
+      if (verticesToRemove.length > 0 && !isDraggingRef.current) {
         graph.removeCells(verticesToRemove, true)
       }
 
-      // Upsert edges
+      // Critical: Map edge IDs to their existing cells to preserve connections
+      const edgeIdToCell = new Map<string, any>()
       for (const edge of diagram.edges) {
-        const existingEdge = model.getCell(edge.id)
+        const existingEdge = edgeIdToCell.get(edge.id) || model.getCell(edge.id)
         const source = model.getCell(edge.source)
         const target = model.getCell(edge.target)
 
@@ -799,7 +806,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
         const style = getEdgeStyle(edge, selectedTool)
 
         if (!existingEdge) {
-          graph.insertEdge(parent, edge.id, '', source, target, style)
+          const newEdge = graph.insertEdge(parent, edge.id, '', source, target, style)
+          edgeIdToCell.set(edge.id, newEdge)
           continue
         }
 
@@ -808,21 +816,21 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
         model.setStyle(existingEdge, style)
       }
 
-      // Remove missing edges
+      // Remove missing edges - but during drag, skip this completely
       const edges = graph.getChildEdges(parent)
       const edgesToRemove = edges.filter((e) => {
         const id = e.id
         return id ? !edgeIds.has(id) : false
       })
-
-      if (edgesToRemove.length > 0) {
+      
+      if (edgesToRemove.length > 0 && !isDraggingRef.current) {
         graph.removeCells(edgesToRemove, true)
       }
     } finally {
       model.endUpdate()
       isApplyingStoreRef.current = false
     }
-  }, [diagram.nodes, diagram.edges])
+  }, [diagram.nodes, diagram.edges, selectedTool])
 
   // Apply selection from store
   useEffect(() => {
@@ -854,11 +862,33 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       <div
         ref={containerRef}
         className={cn(
-          'graph-canvas w-full h-full',
+          'graph-canvas w-full h-full select-none',
           diagram.settings.showGrid && 'graph-grid',
           cursorClass
         )}
       />
+      <style jsx global>{`
+        .graph-canvas {
+          cursor: default;
+        }
+        .crosshair {
+          cursor: crosshair;
+        }
+        .text {
+          cursor: text;
+        }
+        .pointer {
+          cursor: pointer;
+        }
+        .graph-canvas div.mxRubberband {
+          position: absolute;
+          overflow: hidden;
+          border-style: dashed;
+          border-width: 1px;
+          border-color: #0000ff;
+          background: #0077ff33;
+        }
+      `}</style>
     </div>
   )
 }
