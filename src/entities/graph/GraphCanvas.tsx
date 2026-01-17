@@ -76,9 +76,14 @@ const getEdgeStyle = (edge: GraphEdge, tool: string): CellStyle => {
 
   const style: CellStyle = {
     endArrow: constants.ARROW.BLOCK,
-    // Use different edge styles based on tool
-    edgeStyle: tool === 'add-line' ? constants.NONE : constants.EDGESTYLE.ORTHOGONAL,
+    // Use orthogonal edge style for draw.io-like right-angle bends
+    // Only use straight lines for 'add-line' tool (lines without arrows)
+    edgeStyle: edgeStyle.endArrow === 'none' ? constants.NONE : constants.EDGESTYLE.ORTHOGONAL,
     rounded: true,
+    // Enable orthogonal routing
+    orthogonal: true,
+    // Set edge selection stroke width
+    strokeWidth: 2,
   }
 
   if (edgeStyle.lineColor) {
@@ -131,6 +136,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
     graph.setCellsMovable(true)
     graph.setHtmlLabels(true)
     
+    // Enable edge selection and interaction
+    graph.setCellsSelectable(true)
+    graph.setAllowDanglingEdges(false)
+    
     // Preview colors (connection preview, move preview) should stay visible in both themes.
     // Using CSS variables lets the browser resolve the final color when theme changes.
     const anyGraph = graph as any
@@ -148,29 +157,25 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       anyGraph.graphHandler.previewColor = previewColor
     }
 
-    // Configure graph for orthogonal edge routing with corner-to-corner connections
+    // Configure graph for orthogonal edge routing with draw.io-like right-angle bends
     graph.getAllConnectionConstraints = (terminal) => {
       if (terminal != null) {
         const cell = terminal.cell
         if (cell != null && cell.isVertex()) {
-          // Return 9 connection points: 4 corners + 4 edges + center
+          // Return 4 connection points at sides (not corners) for cleaner orthogonal routing
           return [
-            new ConnectionConstraint(new Point(0, 0), true), // Top-left
             new ConnectionConstraint(new Point(0.5, 0), true), // Top-center
-            new ConnectionConstraint(new Point(1, 0), true), // Top-right
-            new ConnectionConstraint(new Point(0, 0.5), true), // Middle-left
-            new ConnectionConstraint(new Point(0.5, 0.5), true), // Center
             new ConnectionConstraint(new Point(1, 0.5), true), // Middle-right
-            new ConnectionConstraint(new Point(0, 1), true), // Bottom-left
             new ConnectionConstraint(new Point(0.5, 1), true), // Bottom-center
-            new ConnectionConstraint(new Point(1, 1), true), // Bottom-right
+            new ConnectionConstraint(new Point(0, 0.5), true), // Middle-left
           ]
         }
       }
       return null
     }
 
-    // Select the closest connection constraint (corners/edges/center)
+    // Smart connection constraint selection for orthogonal routing
+    // Choose connection points based on relative positions for draw.io-like routing
     const baseGetConnectionConstraint = graph.getConnectionConstraint.bind(graph)
     graph.getConnectionConstraint = (edgeState, terminalState, source) => {
       const baseConstraint = baseGetConnectionConstraint(edgeState, terminalState, source)
@@ -186,32 +191,45 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       }
 
       const otherState = source ? edgeState.visibleTargetState : edgeState.visibleSourceState
-      const ref = otherState
-        ? new Point(otherState.x + otherState.width / 2, otherState.y + otherState.height / 2)
-        : null
-
-      if (!ref) {
+      if (!otherState) {
         return constraints[0]
       }
 
-      let best = constraints[0]
-      let bestDist = Number.POSITIVE_INFINITY
+      // Get centers of both terminals
+      const thisCenterX = terminalState.x + terminalState.width / 2
+      const thisCenterY = terminalState.y + terminalState.height / 2
+      const otherCenterX = otherState.x + otherState.width / 2
+      const otherCenterY = otherState.y + otherState.height / 2
 
-      for (const c of constraints) {
-        const pt = graph.getConnectionPoint(terminalState, c, false)
-        if (!pt) continue
+      // Calculate differences
+      const dx = otherCenterX - thisCenterX
+      const dy = otherCenterY - thisCenterY
 
-        const dx = pt.x - ref.x
-        const dy = pt.y - ref.y
-        const dist = dx * dx + dy * dy
+      // Use the larger difference to determine primary direction
+      const absDx = Math.abs(dx)
+      const absDy = Math.abs(dy)
 
-        if (dist < bestDist) {
-          bestDist = dist
-          best = c
+      // Select constraint based on relative position
+      // Priority: use the side that faces the other node
+      if (absDx > absDy) {
+        // Horizontal difference is larger
+        if (dx > 0) {
+          // Other node is to the right, connect from right side
+          return constraints[1] // Right
+        } else {
+          // Other node is to the left, connect from left side
+          return constraints[3] // Left
+        }
+      } else {
+        // Vertical difference is larger or equal
+        if (dy > 0) {
+          // Other node is below, connect from bottom
+          return constraints[2] // Bottom
+        } else {
+          // Other node is above, connect from top
+          return constraints[0] // Top
         }
       }
-
-      return best
     }
 
     // Rubberband selection
@@ -235,7 +253,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
       if (cell) {
         // If we're in select mode, allow selection of both nodes and edges
         if (tool === 'select') {
-          // Let the default selection handler work
+          // For edges, ensure they are selectable
+          if (cell.isEdge()) {
+            const cellId = cell.id as string
+            if (cellId) {
+              store.selectCells([cellId])
+            }
+          }
+          // Let the default selection handler work for vertices
           return
         }
         // Don't create new nodes if we're clicking on an existing cell in other modes
