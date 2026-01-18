@@ -796,22 +796,45 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ className }) => {
 
       // Critical: Map edge IDs to their existing cells to preserve connections
       const edgeIdToCell = new Map<string, any>()
+      const existingEdges = graph.getChildEdges(parent)
+      for (const edgeCell of existingEdges) {
+        if (edgeCell.id) {
+          edgeIdToCell.set(edgeCell.id, edgeCell)
+        }
+      }
+
       for (const edge of diagram.edges) {
-        const existingEdge = edgeIdToCell.get(edge.id) || model.getCell(edge.id)
+        const existingEdge = edgeIdToCell.get(edge.id)
         const source = model.getCell(edge.source)
         const target = model.getCell(edge.target)
 
-        if (!source || !target) continue
+        if (!source || !target) {
+          if (import.meta.env.DEV) {
+            console.warn(`Skipping edge ${edge.id}: source or target not found`)
+          }
+          continue
+        }
 
         const style = getEdgeStyle(edge, selectedTool)
 
         if (!existingEdge) {
+          if (import.meta.env.DEV) {
+            console.log(`Creating new edge: ${edge.id}`)
+          }
           const newEdge = graph.insertEdge(parent, edge.id, '', source, target, style)
           edgeIdToCell.set(edge.id, newEdge)
           continue
         }
 
         if (!existingEdge.isEdge()) continue
+
+        // Update terminals if they've changed to ensure edge stays connected to correct nodes
+        if (existingEdge.getTerminal(true) !== source) {
+          model.setTerminal(existingEdge, source, true)
+        }
+        if (existingEdge.getTerminal(false) !== target) {
+          model.setTerminal(existingEdge, target, false)
+        }
 
         model.setStyle(existingEdge, style)
       }
